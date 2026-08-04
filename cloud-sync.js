@@ -106,9 +106,17 @@ const CloudSync = {
 
   async signIn(){
     if (!this.client) return;
-    // redirectTo defaults to the current page, so this works the same whether Pinboard is
-    // running from GitHub Pages, localhost, or wrapped in the Android APK's TWA.
-    const { error } = await this.client.auth.signInWithOAuth({ provider: 'google' });
+    // Explicitly pass redirectTo as the exact page Pinboard is currently running from —
+    // window.location.href already includes the full path (e.g. ".../pinboard/"), so this
+    // correctly returns to the right address whether Pinboard is on GitHub Pages, localhost, or
+    // wrapped in the Android APK's TWA. (Earlier version of this omitted redirectTo entirely,
+    // assuming Supabase would infer the right page on its own — in practice this sometimes fell
+    // back to the bare site origin instead of the full path, landing on a 404. Being explicit
+    // here removes that ambiguity.)
+    const { error } = await this.client.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.href }
+    });
     if (error){
       toast('Sign-in failed: ' + error.message);
     }
