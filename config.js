@@ -13,3 +13,23 @@
 
 const SUPABASE_URL = 'https://jwemynwctpsuwcsebwwl.supabase.co'; // e.g. 'https://abcdefgh.supabase.co'
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3ZW15bndjdHBzdXdjc2Vid3dsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4MzEzMDMsImV4cCI6MjEwMTQwNzMwM30.hTaNytBPwaUKGEZbEb60I0QT9HUMREn7jTd9dusOUTs'; // starts with 'eyJ...'
+
+// ======================================================================
+// Location features proxy (Lane Finder, automatic alley detection).
+//
+// This is YOUR deployed Cloudflare Worker's URL and app secret — see
+// pinboard-proxy/CLOUDFLARE_SETUP.md. Both are baked in here (rather than
+// entered by each person in Settings) so the app works immediately for
+// anyone who downloads it, with no setup step of their own required.
+//
+// Be clear-eyed about what this means: since these values ship inside the
+// app's own source, anyone who views this file can read them out directly.
+// APP_SECRET is not a strong security boundary on its own — it only stops
+// the most casual, no-context abuse of your Worker URL. The real protection
+// against sustained abuse is the rate limiting configured server-side in
+// worker.js, which can't be bypassed just by reading this file. If you're
+// running this for real public use, treat your Worker's rate limits (not
+// this secret) as the thing actually protecting your Google billing.
+// ======================================================================
+const PROXY_URL = 'https://pinboard.todell33.workers.dev'; // e.g. 'https://pinboard.yourname.workers.dev'
+const APP_SECRET = 'N5xwTko3$51p@*PzChDPSE9I'; // must match the APP_SECRET set on your Worker (Part D of CLOUDFLARE_SETUP.md)
