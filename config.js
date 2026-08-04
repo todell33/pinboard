@@ -11,5 +11,5 @@
 // signed in, not what key was used to connect.
 // ======================================================================
 
-const SUPABASE_URL = 'YOUR_SUPABASE_URL'; // e.g. 'https://abcdefgh.supabase.co'
-const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // starts with 'eyJ...'
+const SUPABASE_URL = 'https://jwemynwctpsuwcsebwwl.supabase.co'; // e.g. 'https://abcdefgh.supabase.co'
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3ZW15bndjdHBzdXdjc2Vid3dsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4MzEzMDMsImV4cCI6MjEwMTQwNzMwM30.hTaNytBPwaUKGEZbEb60I0QT9HUMREn7jTd9dusOUTs'; // starts with 'eyJ...'
