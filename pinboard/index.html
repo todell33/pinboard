@@ -389,6 +389,41 @@ main{ flex:1; padding: 20px 20px calc(90px + var(--safe-bottom)); max-width: 640
 .drawer .nav-btn.active{ background: var(--tap-highlight); border-right: 3px solid var(--brass-bright); }
 .nav-icon{ width:20px; height:20px; }
 
+/* ============ DESKTOP LAYOUT ============
+   At wider viewports the drawer becomes a permanent sidebar instead of a toggleable overlay:
+   always visible, no backdrop, no hamburger/close controls since there's nothing to open or
+   close. main and topbar shift right by the sidebar's width so nothing sits underneath it. The
+   breakpoint (768px) is a conventional phone/tablet vs. desktop-or-larger-tablet cutoff. */
+@media (min-width: 768px){
+  .drawer{
+    transform: none; /* always visible — .open class becomes irrelevant at this width */
+    transition: none; /* the slide-in/out transition is a mobile-only affordance; leaving it
+      active here risks the same override bug as main's margin-left below (a transitioned
+      property can fail to pick up a later media-query value in some rendering engines) — since
+      nothing ever slides on desktop anyway (the sidebar is simply always visible), there's
+      nothing lost by turning it off entirely at this width rather than risk it. */
+    box-shadow: none; /* it's a permanent part of the layout now, not a floating overlay */
+  }
+  .drawer-backdrop{ display:none; } /* nothing to dim behind an always-visible sidebar */
+  .drawer-close-btn{ display:none; } /* nothing to close */
+  .hamburger-btn{ display:none; } /* nothing to open */
+  .drawer-header{ justify-content:center; } /* logo centers now that the close button is gone */
+
+  .topbar{ margin-left: 240px; } /* matches .drawer's own width */
+  main{ margin: 0 0 0 240px; }
+
+  /* The single-column mobile reading width no longer needs to feel cramped once there's a
+     permanent sidebar eating 240px of a wider screen — give body content more breathing room,
+     while still capping it well short of full-bleed on very large monitors. */
+  main{ max-width: 780px; }
+}
+
+@media (min-width: 1100px){
+  /* Extra room on genuinely large/desktop monitors, still well short of full-bleed so text
+     and forms don't stretch uncomfortably wide. */
+  main{ max-width: 880px; }
+}
+
 /* ============ MODAL / SHEET ============ */
 .sheet-overlay{
   position: fixed; inset:0; background: rgba(10,7,5,0.7); z-index: 50;
