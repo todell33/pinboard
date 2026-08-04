@@ -6,60 +6,35 @@
 // alley on a confident name match, or creating a new one if it's a place
 // you haven't logged at before. Never overrides a choice you've made yourself.
 //
-// All Google API calls go through a small personal proxy (a Cloudflare
-// Worker you deploy yourself — see SETUP.md) instead of calling Google
-// directly with a key stored in this browser. The proxy holds the real
-// Google API key server-side, so it's never present anywhere in this app's
-// code, network requests, or downloaded files — only PROXY_URL (the
-// address of your own deployed Worker) is stored here, and that alone is
-// useless to anyone without also controlling that Worker.
+// All Google API calls go through a small proxy (a Cloudflare Worker — see
+// pinboard-proxy/CLOUDFLARE_SETUP.md) instead of calling Google directly
+// with a key stored in this browser. The proxy holds the real Google API
+// key server-side, so it's never present anywhere in this app's code,
+// network requests, or downloaded files. PROXY_URL and APP_SECRET (see
+// config.js) are baked into the app itself rather than entered per-device,
+// so location features work immediately for anyone who downloads the app —
+// see config.js's own comment for what that tradeoff actually means.
 // ======================================================================
 
-const PROXY_URL_STORAGE = 'pinboard_proxy_url';
-
 const AlleyDetect = {
-  proxyUrl: null,
+  proxyUrl: (typeof PROXY_URL !== 'undefined' && PROXY_URL && PROXY_URL.indexOf('YOUR_PROXY_URL') === -1)
+    ? PROXY_URL.replace(/\/$/, '') : null,
 
   init(){
-    this.proxyUrl = (localStorage.getItem(PROXY_URL_STORAGE) || '').replace(/\/$/, '') || null;
-    this.updateProxyUI();
-
-    const btnSave = document.getElementById('btnSaveProxyUrl');
-    if (btnSave){
-      btnSave.addEventListener('click', ()=>{
-        const val = document.getElementById('inputProxyUrl').value.trim().replace(/\/$/, '');
-        if (!val){ toast('Enter your Worker URL first'); return; }
-        if (!/^https:\/\//.test(val)){ toast('URL should start with https://'); return; }
-        localStorage.setItem(PROXY_URL_STORAGE, val);
-        this.proxyUrl = val;
-        document.getElementById('inputProxyUrl').value = '';
-        this.updateProxyUI();
-        toast('Proxy URL saved');
-      });
-    }
-    const btnClear = document.getElementById('btnClearProxyUrl');
-    if (btnClear){
-      btnClear.addEventListener('click', ()=>{
-        localStorage.removeItem(PROXY_URL_STORAGE);
-        this.proxyUrl = null;
-        this.updateProxyUI();
-        toast('Proxy URL removed');
-      });
-    }
     const btnTest = document.getElementById('btnTestAlleyDetection');
     if (btnTest){
       btnTest.addEventListener('click', ()=> this.testDetection());
     }
   },
 
-  updateProxyUI(){
-    const status = document.getElementById('proxyUrlStatus');
-    if (!status) return;
-    if (this.proxyUrl){
-      status.textContent = 'Ready — using ' + this.proxyUrl;
-    } else {
-      status.textContent = 'Not set up — add your Worker URL to enable location features (see SETUP.md)';
+  // Every request to the proxy carries the app secret, if one's configured — see config.js and
+  // the module comment in worker.js for exactly what this does and doesn't protect against.
+  authHeaders(extra){
+    const headers = Object.assign({}, extra);
+    if (typeof APP_SECRET !== 'undefined' && APP_SECRET && APP_SECRET.indexOf('YOUR_APP_SECRET') === -1){
+      headers['X-App-Secret'] = APP_SECRET;
     }
+    return headers;
   },
 
   // Entry point called when the Add Game sheet opens. Silently does nothing if there's no
@@ -93,7 +68,7 @@ const AlleyDetect = {
   // powers the visible "Test Detection Now" button in Settings, so someone whose detection isn't
   // working can actually see which specific step failed rather than guessing blindly.
   async runDetection(){
-    if (!this.proxyUrl) return { ok:false, reason: 'No proxy URL is saved in Settings — see SETUP.md to deploy your own.' };
+    if (!this.proxyUrl) return { ok:false, reason: 'Location features aren\'t configured — see pinboard-proxy/CLOUDFLARE_SETUP.md and fill in PROXY_URL in config.js.' };
     if (!('geolocation' in navigator)) return { ok:false, reason: 'This browser does not support geolocation.' };
 
     let coords;
@@ -173,10 +148,10 @@ const AlleyDetect = {
     // module comment at the top of this file for why.
     const res = await fetch(`${this.proxyUrl}/places/search`, {
       method: 'POST',
-      headers: {
+      headers: this.authHeaders({
         'Content-Type': 'application/json',
         'X-Goog-FieldMask': 'places.displayName,places.location'
-      },
+      }),
       body: JSON.stringify({
         includedTypes: ['bowling_alley'],
         maxResultCount: 5,
@@ -205,14 +180,14 @@ const AlleyDetect = {
   async searchWideArea(lat, lng){
     const res = await fetch(`${this.proxyUrl}/places/search`, {
       method: 'POST',
-      headers: {
+      headers: this.authHeaders({
         'Content-Type': 'application/json',
         // places.name is the field that actually holds the full resource path (e.g.
         // "places/ChIJ...") that a subsequent Place Details lookup needs. places.id is a
         // related but distinct bare-ID field — kept here too since it's a cheap, useful
         // stable identifier, but it is NOT a valid Details request path on its own.
         'X-Goog-FieldMask': 'places.id,places.name,places.displayName,places.location,places.formattedAddress,places.rating,places.userRatingCount'
-      },
+      }),
       body: JSON.stringify({
         includedTypes: ['bowling_alley'],
         maxResultCount: 20, // Places API's own maximum for Nearby Search
@@ -264,7 +239,8 @@ const AlleyDetect = {
     const fields = 'nationalPhoneNumber,internationalPhoneNumber,websiteUri,regularOpeningHours,currentOpeningHours';
 
     const res = await fetch(`${this.proxyUrl}/places/details/${encodeURIComponent(resourcePath)}?fields=${encodeURIComponent(fields)}`, {
-      method: 'GET'
+      method: 'GET',
+      headers: this.authHeaders()
     });
     if (!res.ok){
       const body = await res.text().catch(()=>'');
@@ -331,7 +307,7 @@ const AlleyDetailSheet = {
     const wrap = document.getElementById('mapsEmbedTestWrap');
     const iframe = document.getElementById('mapsEmbedTestFrame');
     if (typeof AlleyDetect === 'undefined' || !AlleyDetect.proxyUrl){
-      toast('Add your proxy URL in Settings first');
+      toast('Location features aren\'t configured — check PROXY_URL in config.js');
       return;
     }
     iframe.src = `${AlleyDetect.proxyUrl}/maps/embed?lat=40.7484&lng=-73.9857&zoom=15`;
@@ -471,7 +447,7 @@ const LaneFinder = {
     if (!statusEl || !listEl) return;
 
     if (typeof AlleyDetect === 'undefined' || !AlleyDetect.proxyUrl){
-      statusEl.textContent = 'Add your proxy URL in Settings → Location Features to use Lane Finder (see SETUP.md).';
+      statusEl.textContent = 'Location features aren\'t configured — see pinboard-proxy/CLOUDFLARE_SETUP.md and fill in PROXY_URL in config.js.';
       listEl.innerHTML = '';
       return;
     }

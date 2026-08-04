@@ -1097,16 +1097,7 @@ a.inline-link{ color: var(--brass); }
         <div class="settings-row">
           <div>
             <div class="settings-label">Location Features</div>
-            <div class="settings-sub" id="proxyUrlStatus">Not set up — add your Worker URL to enable location features (see SETUP.md)</div>
           </div>
-        </div>
-        <div class="field" style="margin-top:10px;">
-          <label>Your Proxy URL</label>
-          <input type="text" id="inputProxyUrl" placeholder="https://your-worker.your-name.workers.dev" autocomplete="off" />
-        </div>
-        <div class="btn-row" style="margin-top:0;">
-          <button class="btn btn-ghost" id="btnClearProxyUrl">Remove</button>
-          <button class="btn btn-primary" id="btnSaveProxyUrl">Save</button>
         </div>
         <button class="btn btn-ghost" id="btnTestAlleyDetection" style="width:100%; margin-top:10px;">📍 Test Detection Now</button>
         <div class="settings-sub" id="alleyDetectTestStatus" style="margin-top:8px; display:none;"></div>
@@ -1114,7 +1105,7 @@ a.inline-link{ color: var(--brass); }
         <div id="mapsEmbedTestWrap" style="display:none; margin-top:10px;">
           <iframe id="mapsEmbedTestFrame" width="100%" height="180" style="border:0; border-radius:6px;" loading="lazy"></iframe>
         </div>
-        <div class="small-note">Powers automatic alley detection while logging a game, the Lane Finder page, and its embedded maps — all routed through a small proxy you deploy yourself, so no Google API key is ever stored in this app. See SETUP.md for the one-time Cloudflare Workers setup (free).</div>
+        <div class="small-note">Powers automatic alley detection while logging a game, the Lane Finder page, and its embedded maps — routed through a shared proxy, so no Google API key is ever stored in this app or on your device.</div>
       </div>
 
       <div class="settings-group">
