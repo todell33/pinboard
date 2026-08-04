@@ -1,0 +1,1657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="theme-color" content="#1A1410" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Pinboard" />
+<title>Pinboard — Bowling Tracker</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+
+<script>
+// Applied synchronously, before any CSS renders, so a saved "light" preference doesn't
+// show a flash of the default dark theme first. Deliberately tiny and dependency-free —
+// this can't wait for app.js to load, since the whole point is beating first paint.
+(function(){
+  try{
+    var saved = localStorage.getItem('pinboard_theme_v1');
+    if (saved === 'light'){
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  }catch(e){ /* localStorage unavailable (e.g. file://) — default dark theme is fine */ }
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+<style>
+/* ============ TOKENS ============ */
+:root{
+  --walnut: #1A1410;
+  --walnut-2: #241C15;
+  --walnut-3: #2F251C;
+  --maple: #F2E4C9;
+  --maple-dim: #D8C8A6;
+  --brass: #C4A35A;
+  --brass-bright: #E0BE72;
+  --pin-red: #8B2E2E;
+  --pin-red-bright: #B84A3E;
+  --gutter-green: #4A5D52;
+  --gutter-green-bright: #6B8577;
+  --line: rgba(242,228,201,0.14);
+  --line-bright: rgba(242,228,201,0.28);
+  --shadow: 0 8px 30px rgba(0,0,0,0.35);
+  --plank-line: rgba(242,228,201,0.02);
+  --ink-overlay: rgba(26,20,16,0.97);
+  --ink-overlay-soft: rgba(26,20,16,0.3);
+  --tap-highlight: rgba(242,228,201,0.04);
+  --disp: 'Archivo Black', 'Archivo', sans-serif;
+  --body: 'Archivo', -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: 'Space Mono', monospace;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Light theme: same bowling-alley material language (lane maple, walnut ink, brass accents)
+   but rebalanced so the light maple wood tone becomes the background instead of the dark walnut,
+   with walnut taking over as the primary text/ink color. Every token name is identical to the
+   dark theme's — only values change — so no other CSS rule needs theme-awareness of its own. */
+[data-theme="light"]{
+  --walnut: #F5EBD6;        /* was near-black background -> now light maple background */
+  --walnut-2: #EBDFC2;      /* card/surface background, one step down from page background */
+  --walnut-3: #E2D3AE;      /* deeper surface (inputs, sheets) */
+  --maple: #2A2015;         /* was light text on dark -> now dark ink text on light */
+  --maple-dim: #5C4E3B;     /* secondary/dim text */
+  --brass: #8A6A2F;         /* darkened for contrast against a light background */
+  --brass-bright: #6E5322;  /* the "bright" accent is darker still here, since bright=high-contrast on light bg */
+  --pin-red: #8B2E2E;       /* kept — already reads fine on both light and dark */
+  --pin-red-bright: #A23B34;
+  --gutter-green: #4A5D52;
+  --gutter-green-bright: #3C4B42;
+  --line: rgba(42,32,21,0.12);
+  --line-bright: rgba(42,32,21,0.24);
+  --shadow: 0 8px 24px rgba(42,32,21,0.14);
+  --plank-line: rgba(42,32,21,0.035);
+  --ink-overlay: rgba(245,235,214,0.97);
+  --ink-overlay-soft: rgba(42,32,21,0.12);
+  --tap-highlight: rgba(42,32,21,0.05);
+}
+
+*{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+html,body{margin:0; padding:0;}
+body{
+  background: var(--walnut);
+  color: var(--maple);
+  font-family: var(--body);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+body::before{
+  content:"";
+  position: fixed; inset:0;
+  background-image:
+    repeating-linear-gradient(90deg, transparent, transparent 38px, var(--plank-line) 38px, var(--plank-line) 40px);
+  pointer-events: none;
+  z-index: 0;
+}
+#app{ position: relative; z-index: 1; min-height: 100vh; display:flex; flex-direction:column; }
+
+::selection{ background: var(--brass); color: var(--walnut); }
+button{ font-family: inherit; }
+input, select{ font-family: inherit; }
+
+@media (prefers-reduced-motion: reduce){
+  *{ animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* ============ HEADER ============ */
+.topbar{
+  padding: calc(18px + var(--safe-top)) 20px 14px;
+  display:flex; align-items:center; justify-content:space-between;
+  border-bottom: 1px solid var(--line);
+  position: sticky; top:0; z-index: 20;
+  background: linear-gradient(180deg, var(--walnut) 0%, var(--walnut) 85%, var(--ink-overlay) 100%);
+  backdrop-filter: blur(6px);
+}
+.topbar-left{ display:flex; align-items:center; gap:14px; }
+.hamburger-btn{
+  background:none; border:none; cursor:pointer; padding: 6px 4px;
+  display:flex; flex-direction:column; justify-content:center; gap:4px; width:22px;
+}
+.hamburger-btn span{
+  display:block; width:100%; height:2px; background: var(--maple); border-radius:1px;
+}
+.brand{ display:flex; align-items:baseline; gap:10px; }
+.brand-mark{
+  font-family: var(--disp); font-size: 22px; letter-spacing: -0.5px; color: var(--maple);
+}
+.brand-mark span{ color: var(--brass); }
+.brand-pin-i{
+  width: 0.5em; height: 0.739em; vertical-align: -0.003em; margin: 0 0.02em;
+  color: var(--maple); /* inherits text color via currentColor in the SVG path */
+}
+.brand-ball-o{
+  width: 0.8em; height: 0.8em; vertical-align: -0.02em; margin: 0 0.01em;
+  color: var(--brass); /* matches the brass color of the rest of "BOARD" via currentColor */
+}
+.brand-sub{ font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--maple-dim); text-transform: uppercase; opacity:0.6; }
+.sync-dot{
+  width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px;
+  background: var(--gutter-green-bright);
+  box-shadow: 0 0 8px var(--gutter-green-bright);
+}
+.sync-dot.off{ background:#6a6258; box-shadow:none; }
+.sync-dot.syncing{ background: var(--brass-bright); box-shadow: 0 0 8px var(--brass-bright); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+.sync-label{ font-family: var(--mono); font-size: 10px; color: var(--maple-dim); display:flex; align-items:center; cursor:pointer; }
+
+/* ============ MAIN SCROLL ============ */
+main{ flex:1; padding: 20px 20px calc(90px + var(--safe-bottom)); max-width: 640px; margin: 0 auto; width:100%; }
+
+.view{ display:none; animation: fadein 0.25s ease; }
+.view.active{ display:block; }
+@keyframes fadein{ from{opacity:0; transform: translateY(6px);} to{opacity:1; transform:none;} }
+
+/* ============ STAT HERO (signature: pin rack) ============ */
+.stat-hero{
+  background: linear-gradient(160deg, var(--walnut-3) 0%, var(--walnut-2) 100%);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 22px 20px 18px;
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.stat-hero-row{ display:flex; gap: 14px; }
+.stat-block{ flex:1; }
+.stat-eyebrow{
+  font-family: var(--mono); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--maple-dim); opacity: 0.7; margin-bottom: 4px; display:block;
+}
+.stat-number{
+  font-family: var(--disp); font-size: 44px; line-height: 1; color: var(--maple);
+  letter-spacing: -1px;
+}
+.stat-number.accent{ color: var(--brass-bright); }
+.stat-delta{ font-family: var(--mono); font-size: 11px; margin-top: 6px; }
+.stat-delta.up{ color: var(--gutter-green-bright); }
+.stat-delta.down{ color: var(--pin-red-bright); }
+.stat-divider{ width:1px; background: var(--line); }
+
+.pinrack{
+  display:flex; gap:6px; justify-content:center; margin-top:18px; padding-top:16px; border-top:1px solid var(--line);
+}
+.pin{
+  width: 14px; height: 22px; border-radius: 40% 40% 50% 50%;
+  background: var(--line-bright);
+  position: relative;
+  transition: background 0.4s ease, transform 0.3s ease;
+}
+.pin::before{
+  content:""; position:absolute; top:5px; left:2px; right:2px; height:2px;
+  background: var(--ink-overlay-soft); border-radius: 2px;
+}
+.pin.up{ background: var(--brass-bright); }
+.pin.down{ background: var(--pin-red); transform: rotate(12deg) translateY(2px); opacity:0.5; }
+
+/* ============ SECTION HEADERS ============ */
+.section-head{
+  display:flex; align-items:center; justify-content:space-between; margin: 24px 0 10px;
+}
+.section-title{
+  font-family: var(--disp); font-size: 15px; letter-spacing: 0.3px; color: var(--maple);
+  text-transform: uppercase;
+}
+.section-link{ font-family: var(--mono); font-size: 11px; color: var(--brass); text-decoration:none; background:none; border:none; cursor:pointer; }
+
+/* ============ CONTEXT TOGGLE ============ */
+.ctx-toggle{
+  display:flex; background: var(--walnut-2); border-radius: 4px; padding: 3px; border: 1px solid var(--line); margin-bottom: 16px;
+}
+.ctx-btn{
+  flex:1; padding: 9px 8px; text-align:center; font-family: var(--mono); font-size: 11px; letter-spacing:0.5px;
+  color: var(--maple-dim); background:none; border:none; border-radius:3px; cursor:pointer; text-transform:uppercase;
+  transition: all 0.2s ease;
+}
+.ctx-btn.active{ background: var(--brass); color: var(--walnut); font-weight:700; }
+
+/* ============ CHART ============ */
+.chart-card{
+  background: var(--walnut-2); border:1px solid var(--line); border-radius:4px; padding: 16px 12px 8px; margin-bottom:16px;
+}
+.chart-card svg{ display:block; width:100%; height:auto; overflow:visible; }
+.chart-empty{ text-align:center; padding: 30px 10px; color: var(--maple-dim); font-size:13px; }
+
+/* ============ GAME LIST / SCORESHEET STYLE ============ */
+.game-row{
+  display:flex; align-items:center; gap:12px; padding: 12px 4px; border-bottom: 1px solid var(--line);
+  cursor:pointer;
+}
+.game-row:active{ background: var(--tap-highlight); }
+.game-score-box{
+  font-family: var(--disp); font-size: 22px; color: var(--maple);
+  width: 52px; height:52px; border: 2px solid var(--line-bright); border-radius:3px;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  position: relative;
+}
+.game-score-box.multi-game{
+  width: 62px; flex-direction: column; gap: 1px; padding-top: 2px;
+}
+.game-score-box.pr::after{
+  content:"★"; position:absolute; top:-8px; right:-6px; font-size:12px; color: var(--brass-bright);
+}
+.session-avg-num{ font-size: 15px; line-height:1; }
+.session-score-label{
+  font-family: var(--mono); font-size:8px; color: var(--maple-dim); text-transform:uppercase;
+  letter-spacing:0.5px; line-height:1;
+}
+.game-score-box .games-count-badge{
+  position:absolute; bottom:-8px; left:50%; transform: translateX(-50%);
+  background: var(--brass); color: var(--walnut); font-family: var(--mono); font-size:9px; font-weight:700;
+  padding: 1px 6px; border-radius:8px; white-space:nowrap; letter-spacing:0.3px;
+}
+
+/* ============ LEAGUE DETAIL SHEET ============ */
+.league-detail-header{
+  display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;
+}
+.league-detail-edit-btn{
+  background: var(--walnut-2); border: 1px solid var(--line-bright); border-radius:6px;
+  width:38px; height:38px; flex-shrink:0; font-size:16px; color: var(--brass-bright); cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.league-detail-edit-btn:active{ background: var(--walnut-3); }
+.league-detail-badge-row{ margin-bottom:14px; }
+.league-detail-info-row{
+  display:flex; align-items:center; gap:8px; font-size:13px; color: var(--maple-dim); margin-top:6px;
+}
+.league-detail-info-row .icon{ opacity:0.7; width:16px; text-align:center; flex-shrink:0; }
+.contact-link{ color: var(--brass-bright); text-decoration:none; }
+.contact-link:active{ opacity:0.7; }
+.hours-row{ display:flex; justify-content:space-between; font-size:12px; color: var(--maple-dim); padding:4px 0; }
+.hours-row.today{ color: var(--maple); font-weight:600; }
+.league-detail-placement{ color: var(--brass-bright); font-weight:600; }
+.league-detail-notes{ font-style:italic; color: var(--maple-dim); margin-top:8px; font-size:12px; }
+.league-detail-stats-row{
+  display:flex; justify-content:space-around; text-align:center; padding: 4px 0 14px;
+}
+.league-detail-stats-row .session-summary-stat .session-summary-num{ font-size:22px; }
+
+/* ============ SESSION DETAIL SHEET ============ */
+.session-summary{
+  display:flex; justify-content:space-around; text-align:center; padding: 6px 0 18px;
+  border-bottom: 1px solid var(--line); margin-bottom:14px;
+}
+.session-summary-stat{ display:flex; flex-direction:column; }
+.session-summary-num{ font-family: var(--disp); font-size:22px; color: var(--maple); }
+.session-summary-label{
+  font-family: var(--mono); font-size:8.5px; color: var(--maple-dim); text-transform:uppercase;
+  letter-spacing:0.5px; margin-top:2px; max-width:64px; line-height:1.3;
+}
+.session-game-row{
+  display:flex; align-items:center; gap:12px; padding: 11px 4px; border-bottom: 1px solid var(--line); cursor:pointer;
+}
+.session-game-row:last-child{ border-bottom:none; }
+.session-game-num{ font-family: var(--mono); font-size:11px; color: var(--maple-dim); width:20px; flex-shrink:0; }
+.session-game-score{
+  font-family: var(--disp); font-size:20px; color: var(--maple);
+  width:46px; height:46px; border:2px solid var(--line-bright); border-radius:3px;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0; position:relative;
+}
+.session-game-score.high-of-session{ border-color: var(--brass); color: var(--brass-bright); }
+.session-game-note{ flex:1; font-size:11px; color: var(--maple-dim); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.session-game-chevron{ color: var(--maple-dim); font-size:16px; flex-shrink:0; }
+.session-game-list-header{
+  display:flex; align-items:center; gap:12px; padding: 0 4px 6px;
+}
+.session-game-list-header .session-game-num{ width:20px; flex-shrink:0; }
+.session-game-score-label{
+  width:46px; text-align:center; font-family: var(--mono); font-size:9px; color: var(--maple-dim);
+  text-transform:uppercase; letter-spacing:1px; flex-shrink:0;
+}
+.game-meta{ flex:1; min-width:0; }
+.game-date{ font-family: var(--mono); font-size: 12px; color:var(--maple); }
+.game-tag{
+  font-family: var(--mono); font-size: 9px; letter-spacing:1px; text-transform:uppercase; padding:2px 6px;
+  border-radius: 2px; margin-left:8px;
+}
+.game-tag.league{ background: rgba(196,163,90,0.18); color: var(--brass-bright); }
+.game-tag.open{ background: rgba(74,93,82,0.25); color: var(--gutter-green-bright); }
+.game-tag.tournament{ background: rgba(184,74,62,0.2); color: var(--pin-red-bright); }
+.game-sub{ font-family: var(--body); font-size: 11px; color: var(--maple-dim); margin-top:2px; }
+.game-chevron{ color: var(--maple-dim); font-size:18px; }
+
+.empty-state{
+  text-align:center; padding: 50px 20px; color: var(--maple-dim);
+}
+.empty-state .pin{ margin: 0 auto 16px; width:24px; height:38px; }
+.empty-state p{ font-size:13px; line-height:1.6; max-width: 260px; margin: 0 auto; }
+
+/* ============ FAB ============ */
+.fab{
+  position: fixed; right: 20px; bottom: calc(24px + var(--safe-bottom));
+  width: 58px; height:58px; border-radius:50%;
+  background: var(--pin-red); color: var(--maple);
+  border: none; font-size: 28px; font-family: var(--disp);
+  display:flex; align-items:center; justify-content:center;
+  box-shadow: var(--shadow); cursor:pointer; z-index: 25;
+  transition: transform 0.15s ease;
+}
+.fab:active{ transform: scale(0.92); }
+
+/* ============ BOTTOM NAV ============ */
+/* ============ LEFT DRAWER NAV ============ */
+.drawer-backdrop{
+  position: fixed; inset:0; background: rgba(10,7,5,0.55); z-index: 39;
+  opacity:0; pointer-events:none; transition: opacity 0.25s ease;
+}
+.drawer-backdrop.open{ opacity:1; pointer-events:auto; }
+.drawer{
+  position: fixed; top:0; left:0; bottom:0; z-index: 40;
+  width: 240px; max-width: 80vw;
+  background: var(--walnut-2); border-right: 1px solid var(--line);
+  display:flex; flex-direction:column; padding: calc(12px + var(--safe-top)) 0 calc(12px + var(--safe-bottom));
+  transform: translateX(-100%); transition: transform 0.28s cubic-bezier(0.16,1,0.3,1);
+  box-shadow: var(--shadow);
+}
+.drawer.open{ transform: translateX(0); }
+.drawer-header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 8px 18px 18px; border-bottom: 1px solid var(--line); margin-bottom:8px;
+}
+.drawer-close-btn{
+  background:none; border:none; color: var(--maple-dim); font-size:16px; cursor:pointer; padding:4px;
+}
+.drawer .nav-btn{
+  flex-direction:row; align-items:center; justify-content:flex-start; gap:14px;
+  padding: 14px 20px; width:100%; text-align:left;
+  font-size: 13px; letter-spacing:0.5px;
+}
+.drawer .nav-btn span:first-child{ font-size:18px; width:22px; text-align:center; flex-shrink:0; }
+.nav-icon-svg{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:18px; }
+.nav-icon-svg svg{ width:18px; height:18px; color: inherit; }
+.drawer .nav-btn[data-view="settings"]{
+  margin-top: auto; border-top: 1px solid var(--line);
+}
+.nav-btn{
+  background:none; border:none; cursor:pointer;
+  display:flex; color: var(--maple-dim); font-family: var(--mono); text-transform:uppercase;
+}
+.nav-btn.active{ color: var(--brass-bright); }
+.drawer .nav-btn.active{ background: var(--tap-highlight); border-right: 3px solid var(--brass-bright); }
+.nav-icon{ width:20px; height:20px; }
+
+/* ============ DESKTOP LAYOUT ============
+   At wider viewports the drawer becomes a permanent sidebar instead of a toggleable overlay:
+   always visible, no backdrop, no hamburger/close controls since there's nothing to open or
+   close. main and topbar shift right by the sidebar's width so nothing sits underneath it.
+   Shares its breakpoint (1100px) with the two-column master-detail layout below, rather than
+   using an earlier one — see that section's comment for why they're intentionally the same. */
+@media (min-width: 1100px){
+  .drawer{
+    transform: none; /* always visible — .open class becomes irrelevant at this width */
+    transition: none; /* the slide-in/out transition is a mobile-only affordance; leaving it
+      active here risks the same override bug as main's margin-left below (a transitioned
+      property can fail to pick up a later media-query value in some rendering engines) — since
+      nothing ever slides on desktop anyway (the sidebar is simply always visible), there's
+      nothing lost by turning it off entirely at this width rather than risk it. */
+    box-shadow: none; /* it's a permanent part of the layout now, not a floating overlay */
+  }
+  .drawer-backdrop{ display:none; } /* nothing to dim behind an always-visible sidebar */
+  .drawer-close-btn{ display:none; } /* nothing to close */
+  .hamburger-btn{ display:none; } /* nothing to open */
+  .drawer-header{ justify-content:center; } /* logo centers now that the close button is gone */
+
+  .topbar{ margin-left: 240px; } /* matches .drawer's own width */
+  main{ margin: 0 0 0 240px; }
+
+  /* Extra room on genuinely large/desktop monitors, still well short of full-bleed so text
+     and forms don't stretch uncomfortably wide. */
+  main{ max-width: 880px; }
+
+  /* Overrides main's own single-column reading-width cap specifically when the currently active
+     page is a two-column layout — toggled by Views.show() in app.js. Without this, .view-two-
+     col's own max-width:none has no effect, since a child element can never render wider than
+     its parent's content box regardless of its own max-width. */
+  main.main-two-col{ max-width: none; }
+
+  /* ============ TWO-COLUMN MASTER-DETAIL LAYOUT ============
+     Pages that show a list of things you can click into (games, leagues, tournaments, balls,
+     alleys) opt into this via .view-two-col on their <section>. Below this same breakpoint,
+     these pages behave exactly as before — the "detail" content (a sheet that would otherwise
+     cover the screen) still overlays everything, same as on mobile. At this width and up, the
+     same detail content instead physically relocates (via JS, see DetailColumn in app.js) into a
+     persistent right column that sits beside the list rather than covering it.
+     This intentionally shares the same breakpoint as the sidebar above (rather than using its
+     own, later one) — the two-column layout wants genuinely spacious width to feel right, and
+     showing the sidebar without the two-column detail view (or vice versa) reads as an
+     inconsistent, half-finished desktop layout rather than a deliberate one. */
+  .view.active.view-two-col{
+    display: flex; /* unambiguously higher specificity than .view.active's plain display:block,
+      rather than relying on source-order tie-breaking between two equally-specific rules */
+    animation: none; /* .view's own fade-in animation, combined with this media query changing
+      display later, causes some rendering engines to render the element as entirely blank
+      instead of picking up the new display value — the same underlying issue as an earlier,
+      similar bug found with a transitioned property in this project. The fade-in is a nice
+      mobile-only touch; nothing is lost by skipping it specifically on desktop two-column pages. */
+    gap: 24px;
+    align-items: flex-start;
+    max-width: none; /* this page manages its own width via flex, not main's single-column cap */
+  }
+  .view-two-col .page-main-col{ flex: 1 1 0; min-width: 0; } /* grows to fill remaining space; min-width:0 allows children to shrink below content size instead of overflowing */
+  .view-two-col .page-detail-col{
+    flex: 0 0 420px; /* fixed-ish width, doesn't grow or shrink with content */
+    position: sticky; top: 20px; /* stays in view while the left list scrolls past it */
+    min-width: 0;
+    background: var(--walnut-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+  }
+  .view-two-col .page-detail-placeholder{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; color: var(--maple-dim); min-height: 240px; gap:10px;
+  }
+  .view-two-col .page-detail-placeholder .icon{ font-size:28px; opacity:0.4; }
+  /* When a real sheet has been relocated into .page-detail-col, its own overlay/backdrop
+     chrome (which made sense as a full-screen modal) needs to get out of the way — it's just
+     page content now, not a popup. */
+  .view-two-col .page-detail-col .sheet-overlay{
+    position: static; background:none; display:block; inset:auto; z-index:auto;
+  }
+  .view-two-col .page-detail-col .sheet-overlay .sheet{
+    width:100%; max-width:none; border-radius:0; padding:0; max-height:none; overflow-y:visible;
+    animation:none; border-top:none; background:none;
+  }
+  .view-two-col .page-detail-col .sheet-handle{ display:none; } /* the drag-handle affordance only makes sense on a mobile bottom sheet */
+}
+
+/* ============ MODAL / SHEET ============ */
+.sheet-overlay{
+  position: fixed; inset:0; background: rgba(10,7,5,0.7); z-index: 50;
+  display:none; align-items:flex-end; justify-content:center;
+}
+.sheet-overlay.active{ display:flex; }
+.sheet{
+  background: var(--walnut-3); width:100%; max-width: 640px; border-radius: 16px 16px 0 0;
+  padding: 8px 20px calc(24px + var(--safe-bottom)); max-height: 90vh; overflow-y:auto;
+  animation: slideup 0.28s cubic-bezier(0.16,1,0.3,1);
+  border-top: 1px solid var(--line-bright);
+}
+@keyframes slideup{ from{ transform: translateY(100%);} to{ transform: translateY(0);} }
+.sheet-handle{ width:36px; height:4px; background: var(--line-bright); border-radius:2px; margin: 10px auto 16px; }
+.sheet-title{ font-family: var(--disp); font-size: 18px; margin-bottom: 18px; text-transform:uppercase; }
+
+.field{ margin-bottom: 16px; }
+.field label{ display:block; font-family: var(--mono); font-size: 10px; letter-spacing:1px; text-transform:uppercase; color: var(--maple-dim); margin-bottom:6px; }
+.field input[type=text], .field input[type=date], .field input[type=number], .field select{
+  width:100%; background: var(--walnut-2); border: 1px solid var(--line-bright); border-radius:4px;
+  padding: 12px 12px; color: var(--maple); font-size:16px;
+}
+.field input:focus, .field select:focus{ outline: 2px solid var(--brass); outline-offset:0; }
+.field-row{ display:flex; gap:10px; }
+.field-row .field{ flex:1; }
+
+.big-score-input{
+  width:100%; background: var(--walnut-2); border: 2px solid var(--brass); border-radius:8px;
+  padding: 16px; color: var(--maple); font-family: var(--disp); font-size: 42px; text-align:center;
+}
+
+.toggle-pair{ display:flex; gap:8px; }
+.toggle-chip{
+  flex:1; padding: 10px; text-align:center; border-radius:4px; border: 1px solid var(--line-bright);
+  background: var(--walnut-2); color: var(--maple-dim); font-family: var(--mono); font-size:12px; cursor:pointer;
+  text-transform:uppercase; letter-spacing:0.5px;
+}
+.toggle-chip.selected{ background: var(--brass); border-color: var(--brass); color: var(--walnut); font-weight:700; }
+
+.btn-row{ display:flex; gap:10px; margin-top: 20px; }
+.btn{
+  flex:1; padding: 14px; border-radius:4px; border:none; font-family: var(--mono); font-size:13px;
+  letter-spacing:1px; text-transform:uppercase; cursor:pointer; font-weight:700;
+}
+.btn-primary{ background: var(--brass); color: var(--walnut); }
+.btn-primary:active{ background: var(--brass-bright); }
+.btn-ghost{ background: transparent; color: var(--maple-dim); border:1px solid var(--line-bright); }
+.btn-danger{ background: transparent; color: var(--pin-red-bright); border:1px solid var(--pin-red); }
+
+.frame-toggle-link{ text-align:center; margin-top:4px; }
+.frame-toggle-link button{ background:none; border:none; color: var(--brass); font-family: var(--mono); font-size:11px; text-decoration: underline; cursor:pointer; padding: 8px; }
+
+/* ============ GAMES-PLAYED STEPPER ============ */
+.games-stepper{
+  display:flex; align-items:center; gap:16px; background: var(--walnut-2); border: 1px solid var(--line-bright);
+  border-radius:4px; padding: 8px 16px; width:fit-content;
+}
+.stepper-btn{
+  width:34px; height:34px; border-radius:4px; border:1px solid var(--line-bright); background: var(--walnut-3);
+  color: var(--brass-bright); font-family: var(--disp); font-size:20px; line-height:1; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.stepper-btn:active{ background: var(--brass); color: var(--walnut); }
+.stepper-btn:disabled{ opacity:0.35; }
+.stepper-value{ font-family: var(--disp); font-size:22px; color: var(--maple); min-width:24px; text-align:center; }
+
+/* ============ PER-GAME ENTRY CARDS ============ */
+.game-entry-card{
+  background: var(--walnut-2); border: 1px solid var(--line); border-radius:6px; padding: 14px; margin-bottom:12px;
+}
+.game-entry-card-label{
+  font-family: var(--mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color: var(--brass-bright);
+  margin-bottom:10px; display:flex; align-items:center; justify-content:space-between;
+}
+.game-entry-scan-btn{
+  background:none; border:none; color: var(--maple-dim); font-family: var(--mono); font-size:10px;
+  text-decoration: underline; cursor:pointer; padding:2px;
+}
+
+/* ============ SCAN SCORE ============ */
+.scan-btn{
+  width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
+  background: var(--walnut-2); border: 1.5px dashed var(--brass); border-radius:6px;
+  padding: 13px; color: var(--brass-bright); font-family: var(--mono); font-size:12px;
+  letter-spacing: 0.5px; text-transform:uppercase; cursor:pointer; margin-bottom:16px;
+}
+.scan-btn:active{ background: var(--walnut-3); }
+.scan-btn:disabled{ opacity:0.5; }
+.scan-icon{ font-size:16px; }
+.scan-status{
+  display:flex; align-items:center; gap:8px; padding: 10px 12px; border-radius:4px; margin: -6px 0 16px;
+  font-family: var(--mono); font-size:11px; color: var(--maple-dim);
+  background: var(--walnut-2); border: 1px solid var(--line);
+}
+.scan-status.error{ color: var(--pin-red-bright); border-color: var(--pin-red); }
+.scan-status.success{ color: var(--gutter-green-bright); border-color: var(--gutter-green); }
+.scan-review-banner{
+  background: rgba(196,163,90,0.12); border: 1px solid var(--brass); border-radius:4px;
+  padding: 10px 12px; margin-bottom:16px; font-size:12px; color: var(--brass-bright);
+  display:flex; align-items:center; gap:8px;
+}
+
+/* ============ FRAME ENTRY GRID (scoresheet signature) ============ */
+.frame-grid{
+  display:grid; grid-template-columns: repeat(5, 1fr); gap:6px; margin-bottom:6px;
+}
+.frame-cell{
+  border: 1px solid var(--line-bright); border-radius:3px; background: var(--walnut-2); padding:6px 4px; text-align:center;
+}
+.frame-num{ font-family: var(--mono); font-size:9px; color: var(--maple-dim); margin-bottom:4px; display:block; }
+.frame-balls{ display:flex; gap:3px; justify-content:center; }
+.frame-balls button.ball-slot{
+  width: 28px; height:28px; text-align:center; padding:0; font-size:14px; font-family: var(--mono);
+  background: var(--walnut); border: 1px solid var(--line-bright); border-radius:3px; color:var(--maple);
+  cursor:pointer;
+}
+.frame-balls button.ball-slot.filled{ border-color: var(--brass); color: var(--brass-bright); font-weight:700; }
+.frame-balls button.ball-slot:active{ background: var(--walnut-3); }
+.frame-total{ font-family: var(--mono); font-size:10px; color: var(--brass-bright); margin-top:4px; display:block; }
+
+/* ============ PIN KEYPAD ============ */
+.pin-keypad-sheet{ padding-bottom: calc(20px + var(--safe-bottom)); }
+.pin-keypad-header{
+  display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px;
+  font-family: var(--disp); font-size:16px; color: var(--maple);
+}
+.pin-keypad-remaining{ font-family: var(--mono); font-size:11px; color: var(--maple-dim); }
+.pin-keypad-grid{
+  display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-bottom:14px;
+}
+.pin-keypad-num-btn{
+  aspect-ratio:1; border-radius:6px; border:1px solid var(--line-bright); background: var(--walnut-2);
+  color: var(--maple); font-family: var(--disp); font-size:20px; cursor:pointer;
+}
+.pin-keypad-num-btn:active{ background: var(--walnut-3); }
+.pin-keypad-num-btn.selected{ background: var(--brass); border-color: var(--brass); color: var(--walnut); }
+.pin-keypad-num-btn:disabled{ opacity:0.3; cursor:not-allowed; }
+.pin-keypad-actions{ display:flex; gap:8px; }
+.pin-keypad-action-btn{
+  flex:1; padding:14px 8px; border-radius:6px; border:1px solid var(--line-bright);
+  background: var(--walnut-2); font-family: var(--disp); font-size:15px; cursor:pointer; color: var(--maple);
+}
+.pin-keypad-action-btn:active{ background: var(--walnut-3); }
+.pin-keypad-action-btn:disabled{ opacity:0.3; cursor:not-allowed; }
+.pin-keypad-action-btn.strike{ color: var(--pin-red-bright); border-color: var(--pin-red); }
+.pin-keypad-action-btn.strike.selected{ background: var(--pin-red); border-color: var(--pin-red); color: var(--maple); }
+.pin-keypad-action-btn.spare{ color: var(--gutter-green-bright); border-color: var(--gutter-green); }
+.pin-keypad-action-btn.spare.selected{ background: var(--gutter-green); border-color: var(--gutter-green); color: var(--maple); }
+.pin-keypad-action-btn.clear{ color: var(--maple-dim); }
+
+/* ============ SETTINGS ============ */
+.settings-group{ margin-bottom: 24px; }
+.settings-row{
+  display:flex; align-items:center; justify-content:space-between; padding: 14px 0; border-bottom:1px solid var(--line);
+}
+.settings-label{ font-size:14px; }
+.settings-sub{ font-size:11px; color:var(--maple-dim); margin-top:2px; }
+
+/* ============ LINEUP LISTS (balls / alleys) ============ */
+.lineup-row{
+  display:flex; align-items:center; gap:10px; padding: 10px 4px; border-bottom: 1px solid var(--line);
+}
+.lineup-row:last-child{ border-bottom:none; }
+.lineup-star{
+  background:none; border:none; font-size:18px; cursor:pointer; padding:2px 4px; line-height:1;
+  color: var(--line-bright); flex-shrink:0;
+}
+.lineup-star.active{ color: var(--brass-bright); }
+.lineup-name{ flex:1; font-size:14px; color: var(--maple); }
+.lineup-delete{
+  background:none; border:none; color: var(--pin-red-bright); font-family: var(--mono); font-size:11px;
+  cursor:pointer; padding: 4px 8px; flex-shrink:0; text-transform:uppercase; letter-spacing:0.5px;
+}
+.lineup-empty{ font-size:12px; color: var(--maple-dim); padding: 8px 4px; font-style:italic; }
+
+/* ============ STATS LAYOUT EDITOR ============ */
+.stats-editor-row{
+  display:flex; align-items:center; gap:10px; padding: 12px 4px; border-bottom: 1px solid var(--line);
+  background: var(--walnut); touch-action: none;
+}
+.stats-editor-row:last-child{ border-bottom:none; }
+.stats-editor-row.dragging{
+  opacity: 0.5; background: var(--walnut-3);
+}
+.stats-editor-drag-handle{
+  font-size:18px; color: var(--maple-dim); cursor: grab; flex-shrink:0; padding:4px 6px; user-select:none;
+}
+.stats-editor-label{ flex:1; font-size:14px; color: var(--maple); }
+.stats-editor-label.hidden-widget{ color: var(--maple-dim); }
+.stats-toggle{
+  position: relative; width:42px; height:24px; flex-shrink:0; cursor:pointer; display:inline-block;
+}
+.stats-toggle input{ opacity:0; width:0; height:0; position:absolute; }
+.stats-toggle-track{
+  position:absolute; inset:0; background: var(--line-bright); border-radius:12px; transition: background 0.2s ease;
+}
+.stats-toggle-track::after{
+  content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%;
+  background: var(--maple); transition: transform 0.2s ease;
+}
+.stats-toggle input:checked + .stats-toggle-track{ background: var(--brass); }
+.stats-toggle input:checked + .stats-toggle-track::after{ transform: translateX(18px); background: var(--walnut); }
+
+/* ============ LEAGUE CARDS (Leagues tab) ============ */
+.league-card{
+  background: var(--walnut-2); border: 1px solid var(--line); border-radius:6px; padding: 14px 16px; margin-bottom:12px;
+  cursor:pointer;
+}
+.league-card:active{ background: var(--walnut-3); }
+.league-card-name{ font-family: var(--disp); font-size:17px; color: var(--maple); margin-bottom:6px; }
+.league-card-row{
+  display:flex; align-items:center; gap:6px; font-size:12px; color: var(--maple-dim); margin-top:3px;
+}
+.league-card-row .icon{ opacity:0.7; width:14px; text-align:center; flex-shrink:0; }
+.league-card-team{ color: var(--brass-bright); }
+.league-card.completed{ opacity: 0.72; }
+.league-card-badge{
+  display:inline-block; font-family: var(--mono); font-size:9px; letter-spacing:1px; text-transform:uppercase;
+  padding: 3px 7px; border-radius:3px; margin-left:8px; vertical-align:1px;
+}
+.league-card-badge.completed{ background: rgba(74,93,82,0.25); color: var(--gutter-green-bright); opacity:1; }
+.league-card-badge.current{ background: rgba(196,163,90,0.18); color: var(--brass-bright); }
+
+/* ============ LANE FINDER ============ */
+.lane-card{
+  background: var(--walnut-2); border: 1px solid var(--line); border-radius:6px; padding: 14px 16px; margin-bottom:12px;
+}
+.lane-card.tappable{ cursor:pointer; }
+.lane-card.tappable:active{ background: var(--walnut-3); }
+.lane-card-name{ font-family: var(--disp); font-size:17px; color: var(--maple); margin-bottom:6px; }
+.lane-card-row{
+  display:flex; align-items:center; gap:6px; font-size:12px; color: var(--maple-dim); margin-top:3px;
+}
+.lane-card-row .icon{ opacity:0.7; width:14px; text-align:center; flex-shrink:0; }
+.lane-card-distance{ color: var(--brass-bright); font-family: var(--mono); font-weight:700; }
+.lane-card-rating{ color: var(--brass-bright); }
+.league-card-placement{ color: var(--brass-bright); font-weight:600; }
+
+.lg-status-banner{
+  padding: 10px 12px; border-radius:4px; margin-bottom:16px; font-size:12px; display:flex; align-items:center; gap:8px;
+}
+.lg-status-banner.is-current{ background: rgba(196,163,90,0.12); border:1px solid var(--brass); color: var(--brass-bright); }
+.lg-status-banner.is-completed{ background: rgba(74,93,82,0.15); border:1px solid var(--gutter-green); color: var(--gutter-green-bright); }
+
+.toast{
+  position: fixed; bottom: calc(150px + var(--safe-bottom)); left:50%; transform: translateX(-50%);
+  background: var(--maple); color: var(--walnut); padding: 10px 18px; border-radius: 20px;
+  font-family: var(--mono); font-size:12px; z-index:60; box-shadow: var(--shadow);
+  opacity:0; pointer-events:none; transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast.show{ opacity:1; transform: translateX(-50%) translateY(-6px); }
+
+.spinner{
+  width:16px; height:16px; border: 2px solid var(--walnut); border-top-color: transparent; border-radius:50%;
+  display:inline-block; animation: spin 0.7s linear infinite; margin-right:6px; vertical-align:-3px;
+}
+@keyframes spin{ to{ transform: rotate(360deg); } }
+
+.gsi-btn{
+  width:100%; background: var(--maple); color: var(--walnut); border:none; border-radius:4px; padding:14px;
+  font-family: var(--mono); font-weight:700; font-size:13px; letter-spacing:0.5px; cursor:pointer; text-transform:uppercase;
+}
+
+.small-note{ font-size:11px; color: var(--maple-dim); line-height:1.5; margin-top:8px; }
+a.inline-link{ color: var(--brass); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <button class="hamburger-btn" id="btnOpenDrawer" aria-label="Open menu">
+        <span></span><span></span><span></span>
+      </button>
+      <div class="brand">
+        <span class="brand-mark">P<svg class="brand-pin-i" viewBox="0 0.2 14 23.1" aria-hidden="true"><path d="M7 0.3c-1.7 0-2.6 1.7-2.6 3.4 0 1 0.3 1.9 0.7 2.7-1.3 1.6-2.1 4-2.1 6.4 0 1.9 0.35 3.6 0.85 5.1-0.4 0.5-0.65 1.15-0.65 1.85 0 2.1 1.9 3.4 4 3.4s4-1.3 4-3.4c0-0.7-0.25-1.35-0.65-1.85 0.5-1.5 0.85-3.2 0.85-5.1 0-2.4-0.8-4.8-2.1-6.4 0.4-0.8 0.7-1.7 0.7-2.7 0-1.7-0.9-3.4-2.6-3.4z" fill="currentColor"/></svg>N<span>B<svg class="brand-ball-o" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="currentColor"/><circle cx="8" cy="6.8" r="1.15" fill="var(--walnut)"/><circle cx="11.6" cy="6.4" r="1.15" fill="var(--walnut)"/><circle cx="9.7" cy="9.5" r="1.15" fill="var(--walnut)"/></svg>ARD</span></span>
+      </div>
+    </div>
+    <div class="sync-label" id="syncLabel" onclick="Views.show('settings')">
+      <span class="sync-dot off" id="syncDot"></span><span id="syncText">Local only</span>
+    </div>
+  </div>
+
+  <main>
+
+    <!-- ============ HOME VIEW ============ -->
+    <section class="view active" id="view-home">
+
+      <div class="stat-hero">
+        <div class="stat-hero-row">
+          <div class="stat-block">
+            <span class="stat-eyebrow">Overall Average</span>
+            <div class="stat-number" id="statOverall">—</div>
+            <div class="stat-delta" id="statOverallDelta"></div>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-block">
+            <span class="stat-eyebrow">League Average</span>
+            <div class="stat-number accent" id="statLeague">—</div>
+            <div class="stat-delta" id="statLeagueDelta"></div>
+          </div>
+        </div>
+        <div class="pinrack" id="pinrack"></div>
+      </div>
+
+      <div class="ctx-toggle" id="chartCtxToggle">
+        <button class="ctx-btn active" data-ctx="all">All</button>
+        <button class="ctx-btn" data-ctx="league">League</button>
+        <button class="ctx-btn" data-ctx="open">Open</button>
+      </div>
+
+      <div class="chart-card">
+        <div id="trendChart"></div>
+      </div>
+
+      <div class="section-head">
+        <span class="section-title">Recent Games</span>
+        <button class="section-link" onclick="Views.show('history')">See all</button>
+      </div>
+      <div id="recentGamesList"></div>
+
+    </section>
+
+    <!-- ============ HISTORY VIEW ============ -->
+    <section class="view view-two-col" id="view-history">
+      <div class="page-main-col">
+        <div class="section-head" style="margin-top:0;">
+          <span class="section-title">All Games</span>
+        </div>
+        <div class="ctx-toggle" id="historyCtxToggle">
+          <button class="ctx-btn active" data-ctx="all">All</button>
+          <button class="ctx-btn" data-ctx="league">League</button>
+          <button class="ctx-btn" data-ctx="open">Open</button>
+        </div>
+        <div id="historyList"></div>
+      </div>
+      <div class="page-detail-col">
+        <div class="page-detail-placeholder">
+          <span class="icon">▤</span>
+          <span>Select a game or session to view its details.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ STATS VIEW ============ -->
+    <section class="view" id="view-stats">
+      <div class="section-head" style="margin-top:0;">
+        <span class="section-title">Analytics</span>
+        <button class="section-link" id="btnEditStatsLayout">Edit</button>
+      </div>
+
+      <div class="ctx-toggle" id="statsCtxToggle">
+        <button class="ctx-btn active" data-ctx="all">All</button>
+        <button class="ctx-btn" data-ctx="league">League</button>
+        <button class="ctx-btn" data-ctx="open">Open</button>
+      </div>
+
+      <div class="field" id="statsLeagueFilterField" style="display:none; margin-bottom:16px;">
+        <select id="statsLeagueFilter">
+          <option value="">All Leagues</option>
+        </select>
+      </div>
+
+      <div class="ctx-toggle" id="statsDateRangeToggle" style="margin-bottom:10px;">
+        <button class="ctx-btn active" data-range="all">All Time</button>
+        <button class="ctx-btn" data-range="30">30 Days</button>
+        <button class="ctx-btn" data-range="90">90 Days</button>
+        <button class="ctx-btn" data-range="custom">Custom</button>
+      </div>
+
+      <div class="field-row" id="statsCustomRangeFields" style="display:none;">
+        <div class="field">
+          <label>From</label>
+          <input type="date" id="statsRangeStart" />
+        </div>
+        <div class="field">
+          <label>To</label>
+          <input type="date" id="statsRangeEnd" />
+        </div>
+      </div>
+
+      <div id="statsWidgetsContainer"></div>
+    </section>
+
+    <!-- ============ STATS LAYOUT EDITOR SHEET ============ -->
+    <div class="sheet-overlay" id="statsEditorOverlay">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-title">Customize Analytics</div>
+        <div class="small-note" style="margin-bottom:14px;">Drag <span style="opacity:0.7;">⠿</span> to reorder. Toggle the switch to show or hide a widget. Tap a custom widget's name to change how it's charted.</div>
+        <div id="statsEditorList"></div>
+        <button class="btn btn-ghost" id="btnAddCustomWidget" style="width:100%; margin-top:6px;">+ Add Custom Widget</button>
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="btnResetStatsLayout">Reset to Default</button>
+          <button class="btn btn-primary" id="btnDoneStatsLayout">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ CUSTOM WIDGET BUILDER SHEET ============ -->
+    <div class="sheet-overlay" id="customWidgetBuilderOverlay">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-title" id="customWidgetBuilderTitle">Add Custom Widget</div>
+
+        <div class="field">
+          <label>Track by</label>
+          <select id="inputCustomWidgetVariable"></select>
+        </div>
+        <div class="field">
+          <label>Show</label>
+          <select id="inputCustomWidgetMetric"></select>
+        </div>
+        <div class="field">
+          <label>Chart type</label>
+          <div class="toggle-pair">
+            <div class="toggle-chip selected" data-chart-type="bar">Bar</div>
+            <div class="toggle-chip" data-chart-type="line">Line</div>
+            <div class="toggle-chip" data-chart-type="number">Number</div>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="btnCancelCustomWidget">Cancel</button>
+          <button class="btn btn-primary" id="btnSaveCustomWidget">Add Widget</button>
+        </div>
+        <button class="btn btn-danger" id="btnDeleteCustomWidget" style="width:100%; margin-top:10px; display:none;">Delete Widget</button>
+      </div>
+    </div>
+
+    <!-- ============ LEAGUES VIEW ============ -->
+    <section class="view view-two-col" id="view-leagues">
+      <div class="page-main-col">
+        <div class="section-head" style="margin-top:0;">
+          <span class="section-title">Leagues</span>
+        </div>
+        <div class="ctx-toggle" id="leaguesCtxToggle">
+          <button class="ctx-btn active" data-status="current">Current</button>
+          <button class="ctx-btn" data-status="completed">Completed</button>
+          <button class="ctx-btn" data-status="all">All</button>
+        </div>
+        <div id="leaguesList"></div>
+        <button class="btn btn-primary" id="btnAddLeague" style="width:100%; margin-top:12px;">+ Add League</button>
+      </div>
+      <div class="page-detail-col">
+        <div class="page-detail-placeholder">
+          <span class="icon">◫</span>
+          <span>Select a league to view its details, or tap + Add League to add one.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TOURNAMENTS VIEW ============ -->
+    <section class="view view-two-col" id="view-tournaments">
+      <div class="page-main-col">
+        <div class="section-head" style="margin-top:0;">
+          <span class="section-title">Tournaments</span>
+        </div>
+        <div class="ctx-toggle" id="tournamentsCtxToggle">
+          <button class="ctx-btn active" data-status="current">Current</button>
+          <button class="ctx-btn" data-status="completed">Completed</button>
+          <button class="ctx-btn" data-status="all">All</button>
+        </div>
+        <div id="tournamentsList"></div>
+        <button class="btn btn-primary" id="btnLogTournamentGame" style="width:100%; margin-top:12px;">📝 Log Tournament Game</button>
+        <button class="btn btn-ghost" id="btnAddTournament" style="width:100%; margin-top:8px;">+ Add Tournament</button>
+      </div>
+      <div class="page-detail-col">
+        <div class="page-detail-placeholder">
+          <span class="icon">◆</span>
+          <span>Select a tournament to view its details, or tap + Add Tournament to add one.</span>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ============ BALLS VIEW ============ -->
+    <section class="view view-two-col" id="view-balls">
+      <div class="page-main-col">
+        <div class="section-head" style="margin-top:0;">
+          <span class="section-title">Bowling Balls</span>
+        </div>
+        <div class="small-note" style="margin-bottom:14px;">Tap the ★ to set your default ball. Tap a ball's name to view or edit its specs (ball type, coverstock, RG, differential).</div>
+        <div id="ballsPageList"></div>
+        <button class="btn btn-primary" id="btnAddBallPage" style="width:100%; margin-top:14px;">+ Add Ball</button>
+      </div>
+      <div class="page-detail-col">
+        <div class="page-detail-placeholder">
+          <span class="icon">●</span>
+          <span>Select a ball to view its details, or tap + Add Ball to add one.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LANE FINDER VIEW ============ -->
+    <section class="view view-two-col" id="view-lanefinder">
+      <div class="page-main-col">
+        <div class="section-head" style="margin-top:0;">
+          <span class="section-title">Lane Finder</span>
+          <button class="section-link" id="btnRefreshLaneFinder">Refresh</button>
+        </div>
+        <div class="ctx-toggle" id="laneFinderRadiusToggle">
+          <button class="ctx-btn" data-radius="5">5 mi</button>
+          <button class="ctx-btn active" data-radius="10">10 mi</button>
+          <button class="ctx-btn" data-radius="25">25 mi</button>
+          <button class="ctx-btn" data-radius="50">50 mi</button>
+        </div>
+        <div id="laneFinderStatus" class="small-note" style="margin-bottom:14px;"></div>
+        <div id="laneFinderList"></div>
+      </div>
+      <div class="page-detail-col">
+        <div class="page-detail-placeholder">
+          <span class="icon">📍</span>
+          <span>Select an alley to view its details.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ALLEY DETAIL SHEET ============ -->
+    <div class="sheet-overlay" id="alleyDetailSheetOverlay">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-title" id="alleyDetailSheetTitle" style="margin-bottom:4px;">Alley</div>
+        <div id="alleyDetailSheetSummary" class="small-note" style="margin-bottom:14px;"></div>
+
+        <div id="alleyDetailSheetMapWrap" style="display:none; margin-bottom:14px;">
+          <iframe id="alleyDetailSheetMap" width="100%" height="180" style="border:0; border-radius:6px;" loading="lazy" allowfullscreen></iframe>
+        </div>
+
+        <div id="alleyDetailSheetContact"></div>
+
+        <div id="alleyDetailSheetHoursWrap" style="display:none;">
+          <div class="section-head"><span class="section-title">Hours</span></div>
+          <div id="alleyDetailSheetHours"></div>
+        </div>
+
+        <div id="alleyDetailSheetStatus" class="small-note"></div>
+
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="btnCloseAlleyDetailSheet">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ ADD BALL SHEET ============ -->
+    <div class="sheet-overlay" id="addBallOverlay">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-title">Add Ball</div>
+        <div class="field">
+          <label>Brand</label>
+          <input type="text" id="inputAddBallBrand" placeholder="e.g. Storm" />
+        </div>
+        <div class="field">
+          <label>Model</label>
+          <input type="text" id="inputAddBallModel" placeholder="e.g. Phaze II" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="btnCancelAddBall">Cancel</button>
+          <button class="btn btn-primary" id="btnSaveAddBall">Add Ball</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SETTINGS VIEW ============ -->
+    <section class="view" id="view-settings">
+      <div class="section-head" style="margin-top:0;">
+        <span class="section-title">Settings</span>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Appearance</div>
+            <div class="settings-sub">Choose how Pinboard looks</div>
+          </div>
+        </div>
+        <div class="toggle-pair" style="margin-top:10px;">
+          <div class="toggle-chip selected" data-theme-choice="dark" id="chipThemeDark">🌙 Dark</div>
+          <div class="toggle-chip" data-theme-choice="light" id="chipThemeLight">☀️ Light</div>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Your Account</div>
+            <div class="settings-sub" id="cloudAccountStatus">Not signed in — your data stays on this device only until you sign in</div>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="btnCloudSignIn" style="width:100%; margin-top:12px;">Sign in with Google</button>
+        <button class="btn btn-ghost" id="btnCloudSignOut" style="width:100%; margin-top:10px; display:none;">Sign Out</button>
+        <div class="small-note" id="accountsSetupHint"></div>
+        <div class="small-note">Signing in ties your games, leagues, tournaments, and ball lineup to your account, so they follow you to any device you sign into. This replaces the old per-device Google Sheets sync.</div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Photo Score Scanning</div>
+            <div class="settings-sub" id="scanKeyStatus">Not set up — add an API key to scan photos</div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:10px;">
+          <label>Anthropic API Key</label>
+          <input type="password" id="inputApiKey" placeholder="sk-ant-..." autocomplete="off" />
+        </div>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-ghost" id="btnClearApiKey">Remove Key</button>
+          <button class="btn btn-primary" id="btnSaveApiKey">Save Key</button>
+        </div>
+        <div class="small-note">Stored only in this browser's local storage — never synced to your Sheet or sent anywhere but Anthropic's API. Get a key at <a class="inline-link" href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>. Each scan costs a fraction of a cent.</div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Location Features</div>
+            <div class="settings-sub" id="proxyUrlStatus">Not set up — add your Worker URL to enable location features (see SETUP.md)</div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:10px;">
+          <label>Your Proxy URL</label>
+          <input type="text" id="inputProxyUrl" placeholder="https://your-worker.your-name.workers.dev" autocomplete="off" />
+        </div>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-ghost" id="btnClearProxyUrl">Remove</button>
+          <button class="btn btn-primary" id="btnSaveProxyUrl">Save</button>
+        </div>
+        <button class="btn btn-ghost" id="btnTestAlleyDetection" style="width:100%; margin-top:10px;">📍 Test Detection Now</button>
+        <div class="settings-sub" id="alleyDetectTestStatus" style="margin-top:8px; display:none;"></div>
+        <button class="btn btn-ghost" id="btnTestMapsEmbed" style="width:100%; margin-top:10px;">🗺️ Test Map Now</button>
+        <div id="mapsEmbedTestWrap" style="display:none; margin-top:10px;">
+          <iframe id="mapsEmbedTestFrame" width="100%" height="180" style="border:0; border-radius:6px;" loading="lazy"></iframe>
+        </div>
+        <div class="small-note">Powers automatic alley detection while logging a game, the Lane Finder page, and its embedded maps — all routed through a small proxy you deploy yourself, so no Google API key is ever stored in this app. See SETUP.md for the one-time Cloudflare Workers setup (free).</div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Bowling Alleys</div>
+            <div class="settings-sub">Manage the alleys you bowl at</div>
+          </div>
+        </div>
+        <div id="alleyList" style="margin-top:10px;"></div>
+        <div class="field-row" style="margin-top:10px;">
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" id="inputNewAlley" placeholder="e.g. Thunderbird Lanes" />
+          </div>
+          <button class="btn btn-primary" id="btnAddAlley" style="flex:0 0 auto; padding:12px 18px;">Add</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-row">
+          <div class="settings-label">Export data (JSON)</div>
+          <button class="section-link" id="btnExport">Download</button>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">Clear all local data</div>
+          <button class="section-link" style="color: var(--pin-red-bright);" id="btnClearData">Clear</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-row"><div class="settings-label">Pinboard</div><div class="settings-sub">v1.0 — your data, your sheet</div></div>
+      </div>
+    </section>
+
+  </main>
+
+  <button class="fab" id="fabAdd" aria-label="Log a game">+</button>
+
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <nav class="drawer" id="drawer">
+    <div class="drawer-header">
+      <span class="brand-mark">P<svg class="brand-pin-i" viewBox="0 0.2 14 23.1" aria-hidden="true"><path d="M7 0.3c-1.7 0-2.6 1.7-2.6 3.4 0 1 0.3 1.9 0.7 2.7-1.3 1.6-2.1 4-2.1 6.4 0 1.9 0.35 3.6 0.85 5.1-0.4 0.5-0.65 1.15-0.65 1.85 0 2.1 1.9 3.4 4 3.4s4-1.3 4-3.4c0-0.7-0.25-1.35-0.65-1.85 0.5-1.5 0.85-3.2 0.85-5.1 0-2.4-0.8-4.8-2.1-6.4 0.4-0.8 0.7-1.7 0.7-2.7 0-1.7-0.9-3.4-2.6-3.4z" fill="currentColor"/></svg>N<span>B<svg class="brand-ball-o" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="currentColor"/><circle cx="8" cy="6.8" r="1.15" fill="var(--walnut)"/><circle cx="11.6" cy="6.4" r="1.15" fill="var(--walnut)"/><circle cx="9.7" cy="9.5" r="1.15" fill="var(--walnut)"/></svg>ARD</span></span>
+      <button class="drawer-close-btn" id="btnCloseDrawer" aria-label="Close menu">✕</button>
+    </div>
+    <button class="nav-btn active" data-view="home"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.3 2.5 8.6c-.3.25-.15.75.25.75H4v7.4c0 .5.4.9.9.9h3.4v-4.9c0-.5.4-.9.9-.9h1.6c.5 0 .9.4.9.9v4.9h3.4c.5 0 .9-.4.9-.9V9.35h1.25c.4 0 .55-.5.25-.75z" fill="currentColor"/></svg></span>Home</button>
+    <button class="nav-btn" data-view="history"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10.5" r="7.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10 6.3v4.5l3 2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.2 2.3h5.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>History</button>
+    <button class="nav-btn" data-view="stats"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.2" y="11" width="3.4" height="6.7" rx="0.6" fill="currentColor"/><rect x="8.3" y="6.5" width="3.4" height="11.2" rx="0.6" fill="currentColor"/><rect x="13.4" y="2.3" width="3.4" height="15.4" rx="0.6" fill="currentColor"/></svg></span>Stats</button>
+    <button class="nav-btn" data-view="leagues"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="3.2" width="12" height="14.6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="7.4" y="1.8" width="5.2" height="2.6" rx="0.7" fill="currentColor"/><path d="M6.6 8.4h6.8M6.6 11.2h6.8M6.6 14h4.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>Leagues</button>
+    <button class="nav-btn" data-view="tournaments"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 2h8v1.2c1.6.15 2.6.7 2.6 1.8 0 1.9-1.5 3.6-3.3 3.9-.5 1.4-1.5 2.4-2.7 2.8v2.1h2.1c.5 0 .9.4.9.9v.9H6.4v-.9c0-.5.4-.9.9-.9h2.1v-2.1c-1.2-.4-2.2-1.4-2.7-2.8C4.9 8.6 3.4 6.9 3.4 5c0-1.1 1-1.65 2.6-1.8V2zm0 2.05c-.85.1-1.3.35-1.3.95 0 1.15.85 2.35 1.9 2.75A9 9 0 0 1 6 6V4.05zm8 0V6c0 .6-.05 1.2-.15 1.75 1.05-.4 1.9-1.6 1.9-2.75 0-.6-.45-.85-1.3-.95zM6.4 16.4h7.2c.5 0 .9.4.9.9V18H5.5v-.7c0-.5.4-.9.9-.9z" fill="currentColor"/></svg></span>Tournaments</button>
+    <button class="nav-btn" data-view="balls"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="currentColor"/><circle cx="8.3" cy="6.6" r="1" fill="var(--walnut)"/><circle cx="11.4" cy="6.3" r="1" fill="var(--walnut)"/><circle cx="9.9" cy="9.1" r="1" fill="var(--walnut)"/></svg></span>Balls</button>
+    <button class="nav-btn" data-view="lanefinder"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 1.5c-3.3 0-6 2.6-6 5.9 0 4.4 6 10.1 6 10.1s6-5.7 6-10.1c0-3.3-2.7-5.9-6-5.9zm0 8.1c-1.3 0-2.4-1.05-2.4-2.35S8.7 4.9 10 4.9s2.4 1.05 2.4 2.35S11.3 9.6 10 9.6z" fill="currentColor"/></svg></span>Lane Finder</button>
+    <button class="nav-btn" data-view="settings"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M11.1 2.2l.4 1.9c.5.15.95.35 1.35.6l1.7-.9 1.4 1.4-.9 1.7c.25.4.45.85.6 1.35l1.9.4v2l-1.9.4c-.15.5-.35.95-.6 1.35l.9 1.7-1.4 1.4-1.7-.9c-.4.25-.85.45-1.35.6l-.4 1.9h-2l-.4-1.9c-.5-.15-.95-.35-1.35-.6l-1.7.9-1.4-1.4.9-1.7c-.25-.4-.45-.85-.6-1.35l-1.9-.4v-2l1.9-.4c.15-.5.35-.95.6-1.35l-.9-1.7 1.4-1.4 1.7.9c.4-.25.85-.45 1.35-.6l.4-1.9z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="10" cy="10" r="2.3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></span>Settings</button>
+  </nav>
+
+  <!-- ============ ADD GAME SHEET ============ -->
+  <div class="sheet-overlay" id="addSheetOverlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">Log a Game</div>
+
+      <button class="scan-btn" id="btnScanScore" type="button">
+        <span class="scan-icon">📷</span> <span id="scanBtnLabel">Scan score from photo</span>
+      </button>
+      <input type="file" id="scanFileInput" accept="image/*" capture="environment" style="display:none;" />
+      <div class="scan-status" id="scanStatus" style="display:none;"></div>
+
+      <div class="field">
+        <label>Context</label>
+        <div class="toggle-pair">
+          <div class="toggle-chip selected" data-val="league" id="chipLeague">League</div>
+          <div class="toggle-chip" data-val="open" id="chipOpen">Open / Practice</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Games played this session</label>
+        <div class="games-stepper">
+          <button type="button" class="stepper-btn" id="btnGamesDown" aria-label="Fewer games">−</button>
+          <span class="stepper-value" id="gamesCountDisplay">1</span>
+          <button type="button" class="stepper-btn" id="btnGamesUp" aria-label="More games">+</button>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Date</label>
+          <input type="date" id="inputDate" />
+        </div>
+        <div class="field" id="fieldLeagueSelect">
+          <label>League</label>
+          <select id="inputLeagueSelect"><option value="">No league selected</option></select>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Ball used</label>
+          <select id="inputBall"><option value="">None selected</option></select>
+        </div>
+        <div class="field">
+          <label>Alley</label>
+          <select id="inputAlley"><option value="">None selected</option></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Lane condition</label>
+        <select id="inputLaneCondition">
+          <option value="">None selected</option>
+          <option value="Heavy Oil">Heavy Oil</option>
+          <option value="Medium Oil">Medium Oil</option>
+          <option value="Light Oil">Light Oil</option>
+          <option value="Dry">Dry</option>
+        </select>
+      </div>
+
+      <div id="gameEntriesContainer"></div>
+
+      <div class="frame-toggle-link">
+        <button id="toggleFrameMode">Enter frame-by-frame instead</button>
+      </div>
+
+      <div class="field">
+        <label>Notes (optional)</label>
+        <input type="text" id="inputNotes" placeholder="e.g. New ball, split conversion..." />
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="btnCancelAdd">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveGame">Save Game</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ GAME DETAIL SHEET ============ -->
+  <div class="sheet-overlay" id="detailSheetOverlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="detailTitle">Game Detail</div>
+      <div id="detailBody"></div>
+      <div class="btn-row">
+        <button class="btn btn-danger" id="btnDeleteGame">Delete</button>
+        <button class="btn btn-ghost" id="btnCloseDetail">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SESSION DETAIL SHEET ============ -->
+  <div class="sheet-overlay" id="sessionDetailOverlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="sessionDetailTitle">Session Detail</div>
+      <div id="sessionDetailSummary"></div>
+      <div id="sessionDetailGames"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="btnCloseSessionDetail">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ BALL DETAIL SHEET ============ -->
+  <div class="sheet-overlay" id="ballDetailOverlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="league-detail-header">
+        <div class="sheet-title" id="ballDetailTitle" style="margin-bottom:0;">Ball</div>
+        <button class="league-detail-edit-btn" id="btnEditBallSpecs" aria-label="Edit specs">✎</button>
+      </div>
+
+      <!-- Read-only spec display -->
+      <div id="ballDetailSpecsWrap">
+        <div class="section-head" style="margin-top:0;"><span class="section-title">Specs</span></div>
+        <div id="ballDetailSpecs"></div>
+      </div>
+
+      <div id="ballDetailStatsHistoryWrap">
+        <div class="section-head"><span class="section-title">Statistics</span></div>
+        <div id="ballDetailStats"></div>
+        <div class="section-head"><span class="section-title">History</span></div>
+        <div id="ballDetailHistory"></div>
+      </div>
+
+      <!-- Editable spec form, hidden until "edit" -->
+      <div id="ballSpecForm" style="display:none;">
+        <div class="section-head" style="margin-top:0;"><span class="section-title">Edit Specs</span></div>
+        <div class="field-row">
+          <div class="field">
+            <label>Brand</label>
+            <input type="text" id="inputBallBrand" placeholder="e.g. Storm" />
+          </div>
+          <div class="field">
+            <label>Weight (lbs)</label>
+            <input type="text" id="inputBallWeight" placeholder="e.g. 15" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Coverstock type</label>
+          <select id="inputBallCoverstock">
+            <option value="">— Select —</option>
+            <option value="Solid">Solid</option>
+            <option value="Pearl">Pearl</option>
+            <option value="Hybrid">Hybrid</option>
+            <option value="Particle">Particle</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Ball type</label>
+          <select id="inputBallCoreType">
+            <option value="">— Select —</option>
+            <option value="Symmetric Core">Symmetric Core</option>
+            <option value="Asymmetric Core">Asymmetric Core</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>RG</label>
+            <input type="text" id="inputBallRg" placeholder="e.g. 2.49" />
+          </div>
+          <div class="field">
+            <label>Differential</label>
+            <input type="text" id="inputBallDiff" placeholder="e.g. 0.051" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Hook potential</label>
+          <input type="text" id="inputBallHook" placeholder="e.g. High" />
+        </div>
+        <div class="field">
+          <label>Notes</label>
+          <input type="text" id="inputBallSpecNotes" placeholder="Anything else worth remembering" />
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="btnCloseBallDetail">Close</button>
+        <button class="btn btn-primary" id="btnSaveBallSpecs" style="display:none;">Save Specs</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ LEAGUE DETAIL SHEET ============ -->
+  <div class="sheet-overlay" id="leagueDetailOverlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="league-detail-header">
+        <div class="sheet-title" id="leagueDetailTitle" style="margin-bottom:0;">League</div>
+        <button class="league-detail-edit-btn" id="btnEditLeagueFromDetail" aria-label="Edit league">✎</button>
+      </div>
+      <div id="leagueDetailInfo"></div>
+      <div class="section-head" style="margin-top:20px;"><span class="section-title">Statistics</span></div>
+      <div id="leagueDetailStats"></div>
+      <div class="section-head"><span class="section-title">History</span></div>
+      <div id="leagueDetailHistory"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="btnCloseLeagueDetail">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TOURNAMENT DETAIL SHEET ============ -->
+  <div class="sheet-overlay" id="tournamentDetailOverlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="league-detail-header">
+        <div class="sheet-title" id="tournamentDetailTitle" style="margin-bottom:0;">Tournament</div>
+        <button class="league-detail-edit-btn" id="btnEditTournamentFromDetail" aria-label="Edit tournament">✎</button>
+      </div>
+      <div id="tournamentDetailInfo"></div>
+      <div class="section-head" style="margin-top:20px;"><span class="section-title">Statistics</span></div>
+      <div id="tournamentDetailStats"></div>
+      <div class="section-head"><span class="section-title">History</span></div>
+      <div id="tournamentDetailHistory"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="btnCloseTournamentDetail">Close</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============ LEAGUE ADD/EDIT SHEET ============ -->
+  <div class="sheet-overlay" id="leagueSheetOverlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="leagueSheetTitle">Add League</div>
+
+      <div class="field">
+        <label>League name</label>
+        <input type="text" id="inputLgName" placeholder="e.g. Thursday Night Mixed" />
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Team name</label>
+          <input type="text" id="inputLgTeamName" placeholder="e.g. The Alley Cats" />
+        </div>
+        <div class="field">
+          <label>Team size</label>
+          <input type="number" id="inputLgTeamSize" min="1" max="20" placeholder="e.g. 4" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Alley</label>
+        <select id="inputLgAlley"><option value="">None selected</option></select>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Season start</label>
+          <input type="date" id="inputLgSeasonStart" />
+        </div>
+        <div class="field">
+          <label>Season end</label>
+          <input type="date" id="inputLgSeasonEnd" />
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Day of week</label>
+          <select id="inputLgDay">
+            <option value="">—</option>
+            <option value="0">Sunday</option>
+            <option value="1">Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Time</label>
+          <input type="time" id="inputLgTime" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Notes (optional)</label>
+        <input type="text" id="inputLgNotes" placeholder="e.g. Skips holiday weeks" />
+      </div>
+
+      <div id="lgStatusBanner" class="lg-status-banner" style="display:none;"></div>
+
+      <div id="lgPlacementSection" style="display:none;">
+        <div class="field">
+          <label>Final standing</label>
+          <input type="text" id="inputLgPlacement" placeholder="e.g. 3rd of 12 teams" />
+        </div>
+        <div class="field">
+          <label>Placement notes (optional)</label>
+          <input type="text" id="inputLgPlacementNotes" placeholder="e.g. 12 points behind 2nd, lost in playoffs" />
+        </div>
+      </div>
+
+      <button class="btn btn-ghost" id="btnLgToggleCompleted" style="width:100%; margin-bottom:8px; display:none;"></button>
+
+      <button class="btn btn-ghost" id="btnLgAddToCalendar" style="width:100%; margin-bottom:8px; display:none;">📅 Add weekly matches to phone calendar</button>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="btnCancelLeague">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveLeague">Save League</button>
+      </div>
+      <button class="btn btn-danger" id="btnDeleteLeague" style="width:100%; margin-top:10px; display:none;">Delete League</button>
+    </div>
+  </div>
+
+  <!-- ============ TOURNAMENT ADD/EDIT SHEET ============ -->
+  <div class="sheet-overlay" id="tournamentSheetOverlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="tournamentSheetTitle">Add Tournament</div>
+
+      <div class="field">
+        <label>Tournament name</label>
+        <input type="text" id="inputTnName" placeholder="e.g. City Championships" />
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Format (optional)</label>
+          <input type="text" id="inputTnFormat" placeholder="e.g. 4-game singles" />
+        </div>
+        <div class="field">
+          <label>Entry fee (optional)</label>
+          <input type="text" id="inputTnEntryFee" placeholder="e.g. $40" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Alley</label>
+        <select id="inputTnAlley"><option value="">None selected</option></select>
+      </div>
+
+      <div class="field">
+        <label>Dates</label>
+        <div class="toggle-pair">
+          <div class="toggle-chip selected" data-date-mode="single">Single day</div>
+          <div class="toggle-chip" data-date-mode="range">Multi-day range</div>
+        </div>
+      </div>
+
+      <div class="field" id="tnSingleDateField">
+        <label>Date</label>
+        <input type="date" id="inputTnSingleDate" />
+      </div>
+
+      <div class="field-row" id="tnRangeDateFields" style="display:none;">
+        <div class="field">
+          <label>Start date</label>
+          <input type="date" id="inputTnRangeStart" />
+        </div>
+        <div class="field">
+          <label>End date</label>
+          <input type="date" id="inputTnRangeEnd" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Notes (optional)</label>
+        <input type="text" id="inputTnNotes" placeholder="e.g. Squad time 10am" />
+      </div>
+
+      <div id="tnStatusBanner" class="lg-status-banner" style="display:none;"></div>
+
+      <div id="tnPlacementSection" style="display:none;">
+        <div class="field">
+          <label>Final standing</label>
+          <input type="text" id="inputTnPlacement" placeholder="e.g. 3rd of 40 bowlers" />
+        </div>
+        <div class="field">
+          <label>Placement notes (optional)</label>
+          <input type="text" id="inputTnPlacementNotes" placeholder="e.g. Cashed, missed match play by 10 pins" />
+        </div>
+      </div>
+
+      <button class="btn btn-ghost" id="btnTnToggleCompleted" style="width:100%; margin-bottom:8px; display:none;"></button>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="btnCancelTournament">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveTournament">Save Tournament</button>
+      </div>
+      <button class="btn btn-danger" id="btnDeleteTournament" style="width:100%; margin-top:10px; display:none;">Delete Tournament</button>
+    </div>
+  </div>
+
+  <!-- ============ LOG TOURNAMENT GAME SHEET ============ -->
+  <!-- A separate, dedicated logging form for tournament games — distinct from the main Add Game
+       sheet's League/Open toggle, so tournament-specific context (which tournament, no
+       league/alley re-selection since those are already fixed to the tournament) stays simple. -->
+  <div class="sheet-overlay" id="tnGameSheetOverlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">Log Tournament Game</div>
+
+      <div class="field">
+        <label>Tournament</label>
+        <select id="inputTnGameTournament"><option value="">Select a tournament</option></select>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Date</label>
+          <input type="date" id="inputTnGameDate" />
+        </div>
+        <div class="field">
+          <label>Ball used</label>
+          <select id="inputTnGameBall"><option value="">None selected</option></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Lane condition</label>
+        <select id="inputTnGameLaneCondition">
+          <option value="">None selected</option>
+          <option value="Heavy Oil">Heavy Oil</option>
+          <option value="Medium Oil">Medium Oil</option>
+          <option value="Light Oil">Light Oil</option>
+          <option value="Dry">Dry</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Games played this session</label>
+        <div class="games-stepper">
+          <button type="button" class="stepper-btn" id="btnTnGamesDown" aria-label="Fewer games">−</button>
+          <span class="stepper-value" id="tnGamesCountDisplay">1</span>
+          <button type="button" class="stepper-btn" id="btnTnGamesUp" aria-label="More games">+</button>
+        </div>
+      </div>
+
+      <div id="tnGameEntriesContainer"></div>
+
+      <div class="frame-toggle-link">
+        <button id="toggleTnFrameMode">Enter frame-by-frame instead</button>
+      </div>
+
+      <div class="field">
+        <label>Notes (optional)</label>
+        <input type="text" id="inputTnGameNotes" placeholder="e.g. Squad 2, lanes 21-22" />
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="btnCancelTnGame">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveTnGame">Save Game</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PIN KEYPAD SHEET ============ -->
+  <!-- One shared instance reused for every ball slot across both game-logging forms, instead of
+       relying on the phone's native keyboard (which has no way to enter a strike or spare). -->
+  <div class="sheet-overlay" id="pinKeypadOverlay">
+    <div class="sheet pin-keypad-sheet">
+      <div class="sheet-handle"></div>
+      <div class="pin-keypad-header">
+        <span id="pinKeypadFrameLabel">Frame 1, Ball 1</span>
+        <span id="pinKeypadRemaining" class="pin-keypad-remaining"></span>
+      </div>
+      <div class="pin-keypad-grid" id="pinKeypadNumberGrid"></div>
+      <div class="pin-keypad-actions">
+        <button type="button" class="pin-keypad-action-btn strike" id="btnPinStrike">Strike</button>
+        <button type="button" class="pin-keypad-action-btn spare" id="btnPinSpare">Spare</button>
+        <button type="button" class="pin-keypad-action-btn clear" id="btnPinClear">Clear</button>
+      </div>
+      <button class="btn btn-ghost" id="btnPinKeypadDone" style="width:100%; margin-top:12px;">Done</button>
+    </div>
+  </div>
+
+
+  <div class="toast" id="toast"></div>
+
+</div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="cloud-sync.js"></script>
+<script src="score-scan.js"></script>
+<script src="alley-detect.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
