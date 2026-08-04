@@ -411,7 +411,7 @@ main{ flex:1; padding: 20px 20px calc(90px + var(--safe-bottom)); max-width: 640
   .drawer-header{ justify-content:center; } /* logo centers now that the close button is gone */
 
   .topbar{ margin-left: 240px; } /* matches .drawer's own width */
-  main{ margin: 0 0 0 240px; }
+  main{ margin: 0 0 0 240px; width: calc(100% - 240px); } /* width:100% (from the base rule) resolves against the containing block and doesn't account for margin-left on top of it, which is what was pushing main's right edge past the viewport — this makes the sidebar's width part of the actual size calculation instead of just an offset */
 
   /* Extra room on genuinely large/desktop monitors, still well short of full-bleed so text
      and forms don't stretch uncomfortably wide. */
@@ -444,12 +444,14 @@ main{ flex:1; padding: 20px 20px calc(90px + var(--safe-bottom)); max-width: 640
       mobile-only touch; nothing is lost by skipping it specifically on desktop two-column pages. */
     gap: 24px;
     align-items: flex-start;
-    max-width: none; /* this page manages its own width via flex, not main's single-column cap */
+    max-width: 100%; /* hard cap at 100% of main's own content box, as a defensive measure —
+      explicitly stated here rather than relying on the absence of any competing max-width
+      elsewhere in the cascade to correctly leave this row unconstrained */
+    width: 100%;
   }
   .view-two-col .page-main-col{ flex: 1 1 0; min-width: 0; } /* grows to fill remaining space; min-width:0 allows children to shrink below content size instead of overflowing */
   .view-two-col .page-detail-col{
     flex: 0 0 420px; /* fixed-ish width, doesn't grow or shrink with content */
-    position: sticky; top: 20px; /* stays in view while the left list scrolls past it */
     min-width: 0;
     background: var(--walnut-2);
     border: 1px solid var(--line);
