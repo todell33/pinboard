@@ -341,6 +341,7 @@ const AlleyDetailSheet = {
 
   close(){
     document.getElementById('alleyDetailSheetOverlay').classList.remove('active');
+    if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('lanefinder');
   },
 
   async open(placeId){
@@ -349,6 +350,7 @@ const AlleyDetailSheet = {
       toast('Could not find that alley\'s info — try refreshing the list');
       return;
     }
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('alleyDetailSheetOverlay', 'lanefinder');
 
     // Show immediately with whatever we already have from the list (name, distance, address,
     // rating) rather than waiting on the network — the Place Details fetch below only adds to

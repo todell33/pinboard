@@ -598,12 +598,19 @@ const Views = {
   current: 'home',
   show(name){
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-    document.getElementById('view-'+name).classList.add('active');
+    const targetView = document.getElementById('view-'+name);
+    targetView.classList.add('active');
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
     this.current = name;
+    // main itself has a max-width cap sized for single-column reading pages — a two-column
+    // page's own max-width:none only affects ITS width, not its parent's, so main needs its own
+    // matching toggle here to actually let two-column pages use the full available width.
+    document.querySelector('main').classList.toggle('main-two-col', targetView.classList.contains('view-two-col'));
     Render.all();
     window.scrollTo(0,0);
-    Drawer.close();
+    // Only auto-close on mobile/tablet widths — on desktop the drawer is a permanent sidebar
+    // (see the @media (min-width: 1100px) rules) and should stay visible through navigation.
+    if (window.innerWidth < 1100) Drawer.close();
   }
 };
 
@@ -623,7 +630,105 @@ const Drawer = {
   }
 };
 
-// ---------- Chart rendering (inline SVG, no deps) ----------
+// ---------- Desktop two-column master-detail layout ----------
+// On phones (and any viewport under 1100px), every "detail" sheet (viewing a game/league/
+// tournament/ball/alley, or the Add/Edit forms for them) works exactly as it always has: a
+// bottom sheet that overlays the current page. At 1100px and wider, qualifying pages instead
+// show their list on the left and the detail content in a permanent right column — so the SAME
+// sheet element needs to physically live in two different places depending on screen width,
+// rather than duplicating its markup or render logic.
+//
+// This module does that relocation. Each sheet keeps a record of where it originally lived (its
+// "mobile home" — a fixed anchor point at the end of the DOM, same as today) so it can always be
+// moved back there if the viewport shrinks below the breakpoint again.
+const DetailColumn = {
+  DESKTOP_BREAKPOINT: 1100,
+  // sheetId -> { mobileAnchor: Comment node marking original position, pageId: which view's
+  // .page-detail-col this sheet belongs to when relocated }
+  registry: {},
+
+  isDesktop(){
+    return window.innerWidth >= this.DESKTOP_BREAKPOINT;
+  },
+
+  // Called once per sheet, the first time it's ever relocated — records an HTML comment node
+  // immediately before the sheet in the DOM as a permanent "put it back here" marker, so moving
+  // it to a page's right column and later moving it back doesn't depend on remembering an index
+  // or sibling that might itself have moved.
+  ensureRegistered(sheetId, pageId){
+    if (this.registry[sheetId]) return;
+    const el = document.getElementById(sheetId);
+    if (!el) return;
+    const anchor = document.createComment('detail-column-anchor:' + sheetId);
+    el.parentNode.insertBefore(anchor, el);
+    this.registry[sheetId] = { mobileAnchor: anchor, pageId };
+  },
+
+  // Moves a sheet to the correct location for the CURRENT viewport width — its page's
+  // .page-detail-col if desktop-width and that container exists, otherwise back to its
+  // original mobile anchor point. Safe to call repeatedly; it's a no-op if the sheet is already
+  // in the right place (checked via parentNode, not by re-inserting unconditionally, so this
+  // doesn't reset scroll position or cause unnecessary reflow on every call).
+  relocate(sheetId, pageId){
+    this.ensureRegistered(sheetId, pageId);
+    const entry = this.registry[sheetId];
+    if (!entry) return; // sheet doesn't exist in the DOM (shouldn't happen, but don't crash if a caller passes a bad id)
+    const el = document.getElementById(sheetId);
+    if (!el) return;
+
+    const desktopCol = this.isDesktop() ? document.querySelector(`#view-${entry.pageId} .page-detail-col`) : null;
+
+    if (desktopCol){
+      if (el.parentNode !== desktopCol) desktopCol.appendChild(el);
+      this.hidePlaceholder(entry.pageId);
+    } else {
+      if (el.parentNode !== entry.mobileAnchor.parentNode || el.previousSibling !== entry.mobileAnchor){
+        entry.mobileAnchor.parentNode.insertBefore(el, entry.mobileAnchor.nextSibling);
+      }
+    }
+  },
+
+  hidePlaceholder(pageId){
+    const placeholder = document.querySelector(`#view-${pageId} .page-detail-placeholder`);
+    if (placeholder) placeholder.style.display = 'none';
+  },
+  showPlaceholder(pageId){
+    const placeholder = document.querySelector(`#view-${pageId} .page-detail-placeholder`);
+    if (placeholder) placeholder.style.display = '';
+  },
+
+  // Called whenever a sheet closes — on desktop this means going back to the placeholder
+  // (nothing selected) rather than the sheet just vanishing off-screen the way a mobile overlay
+  // does. Safe to call even on mobile (the placeholder isn't visible there regardless, and
+  // sheets aren't relocated at all below the breakpoint, so this only matters when it's needed).
+  onSheetClosed(pageId){
+    if (this.isDesktop()) this.showPlaceholder(pageId);
+  },
+
+  // Re-homes every previously-relocated sheet on resize, so dragging a browser window across
+  // the breakpoint (rather than a full page reload) still ends up in the right state — a
+  // sheet that's mid-open shouldn't silently vanish or end up trapped in the wrong layout.
+  init(){
+    let lastIsDesktop = this.isDesktop();
+    window.addEventListener('resize', ()=>{
+      const nowDesktop = this.isDesktop();
+      if (nowDesktop === lastIsDesktop) return; // only act when actually crossing the breakpoint, not on every resize pixel
+      lastIsDesktop = nowDesktop;
+      Object.keys(this.registry).forEach(sheetId=>{
+        const entry = this.registry[sheetId];
+        const el = document.getElementById(sheetId);
+        const isOpen = el && el.classList.contains('active');
+        this.relocate(sheetId, entry.pageId);
+        // If a sheet was actively open when we crossed INTO desktop width, show it in the
+        // column immediately rather than requiring the person to re-click the item.
+        if (isOpen && nowDesktop) this.hidePlaceholder(entry.pageId);
+        if (isOpen && !nowDesktop){ /* mobile overlay behavior already handles showing it visually via the existing .active class + CSS */ }
+      });
+    });
+  }
+};
+
+
 const Chart = {
   // Reads the current value of a CSS custom property (e.g. '--brass') directly from the page,
   // so inline SVG — which can't reference var() the way HTML elements can — always matches
@@ -1656,11 +1761,13 @@ const BallsUI = {
   openAddSheet(){
     document.getElementById('inputAddBallBrand').value = '';
     document.getElementById('inputAddBallModel').value = '';
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('addBallOverlay', 'balls');
     document.getElementById('addBallOverlay').classList.add('active');
   },
 
   closeAddSheet(){
     document.getElementById('addBallOverlay').classList.remove('active');
+    if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('balls');
   },
 
   saveAddSheet(){
@@ -1686,6 +1793,7 @@ function openBallDetail(id){
   const b = Store.ballById(id);
   if (!b) return;
   ballDetailId = id;
+  if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('ballDetailOverlay', 'balls');
   document.getElementById('ballDetailTitle').textContent = b.name;
   renderBallDetailSpecs(b);
   renderBallDetailStats(b);
@@ -1822,6 +1930,7 @@ function saveBallSpecForm(){
 function closeBallDetail(){
   document.getElementById('ballDetailOverlay').classList.remove('active');
   ballDetailId = null;
+  if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('balls');
 }
 
 // ---------- Leagues tab ----------
@@ -1913,6 +2022,7 @@ const LeaguesUI = {
 
   openAdd(){
     this.editingId = null;
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('leagueSheetOverlay', 'leagues');
     document.getElementById('leagueSheetTitle').textContent = 'Add League';
     document.getElementById('inputLgName').value = '';
     document.getElementById('inputLgTeamName').value = '';
@@ -1940,6 +2050,7 @@ const LeaguesUI = {
     const l = Store.leagueById(id);
     if (!l) return;
     this.editingId = id;
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('leagueSheetOverlay', 'leagues');
     document.getElementById('leagueSheetTitle').textContent = 'Edit League';
     document.getElementById('inputLgName').value = l.name || '';
     document.getElementById('inputLgTeamName').value = l.teamName || '';
@@ -2016,6 +2127,7 @@ const LeaguesUI = {
 
   close(){
     document.getElementById('leagueSheetOverlay').classList.remove('active');
+    if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('leagues');
   },
 
   readForm(){
@@ -2178,6 +2290,7 @@ const TournamentsUI = {
 
   openAdd(){
     this.editingId = null;
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('tournamentSheetOverlay', 'tournaments');
     document.getElementById('tournamentSheetTitle').textContent = 'Add Tournament';
     document.getElementById('inputTnName').value = '';
     document.getElementById('inputTnFormat').value = '';
@@ -2203,6 +2316,7 @@ const TournamentsUI = {
     const t = Store.tournamentById(id);
     if (!t) return;
     this.editingId = id;
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('tournamentSheetOverlay', 'tournaments');
     document.getElementById('tournamentSheetTitle').textContent = 'Edit Tournament';
     document.getElementById('inputTnName').value = t.name || '';
     document.getElementById('inputTnFormat').value = t.format || '';
@@ -2278,6 +2392,7 @@ const TournamentsUI = {
 
   close(){
     document.getElementById('tournamentSheetOverlay').classList.remove('active');
+    if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('tournaments');
   },
 
   readForm(){
@@ -2879,6 +2994,7 @@ const TnGameSheet = {
   entries: [],
 
   open(){
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('tnGameSheetOverlay', 'tournaments');
     document.getElementById('inputTnGameDate').value = new Date().toISOString().slice(0,10);
     document.getElementById('inputTnGameNotes').value = '';
     document.getElementById('inputTnGameLaneCondition').value = '';
@@ -2891,6 +3007,7 @@ const TnGameSheet = {
   },
   close(){
     document.getElementById('tnGameSheetOverlay').classList.remove('active');
+    if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('tournaments');
   },
 
   populateBallPicker(){
@@ -3085,6 +3202,11 @@ function openDetail(id){
   const g = Store.games.find(x=>x.id===id);
   if (!g) return;
   detailGameId = id;
+  // This sheet is reachable from several pages (Home, History, and from within Ball/League/
+  // Tournament detail's own history lists) — relocate to whichever page is actually active
+  // right now rather than assuming History specifically. Pages without a .page-detail-col
+  // (like Home) simply fall back to the normal mobile-style overlay, which is correct there.
+  if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('detailSheetOverlay', Views.current);
   document.getElementById('detailTitle').textContent = fmtDateLong(g.date);
   let framesHtml = '';
   if (g.frames){
@@ -3119,6 +3241,7 @@ function openDetail(id){
 function closeDetail(){
   document.getElementById('detailSheetOverlay').classList.remove('active');
   detailGameId = null;
+  if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed(Views.current);
 }
 
 // ---------- Session Detail Sheet ----------
@@ -3126,6 +3249,7 @@ function closeDetail(){
 // game within that session, tappable through to the existing single-game detail sheet for
 // full frame-by-frame data.
 function openSessionDetail(session){
+  if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('sessionDetailOverlay', Views.current);
   const tagLabel = contextTagLabel(session.games[0]);
   document.getElementById('sessionDetailTitle').textContent = fmtDateLong(session.date) + ' — ' + tagLabel;
 
@@ -3185,6 +3309,7 @@ function openSessionDetail(session){
 }
 function closeSessionDetail(){
   document.getElementById('sessionDetailOverlay').classList.remove('active');
+  if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed(Views.current);
 }
 
 // ---------- League Detail Sheet ----------
@@ -3197,6 +3322,7 @@ function openLeagueDetail(id){
   const l = Store.leagueById(id);
   if (!l) return;
   leagueDetailId = id;
+  if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('leagueDetailOverlay', 'leagues');
 
   document.getElementById('leagueDetailTitle').textContent = l.name;
   renderLeagueDetailInfo(l);
@@ -3288,6 +3414,7 @@ function renderLeagueDetailHistory(l){
 function closeLeagueDetail(){
   document.getElementById('leagueDetailOverlay').classList.remove('active');
   leagueDetailId = null;
+  if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('leagues');
 }
 
 let tournamentDetailId = null;
@@ -3296,6 +3423,7 @@ function openTournamentDetail(id){
   const t = Store.tournamentById(id);
   if (!t) return;
   tournamentDetailId = id;
+  if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('tournamentDetailOverlay', 'tournaments');
 
   document.getElementById('tournamentDetailTitle').textContent = t.name;
   renderTournamentDetailInfo(t);
@@ -3386,6 +3514,7 @@ function renderTournamentDetailHistory(t){
 function closeTournamentDetail(){
   document.getElementById('tournamentDetailOverlay').classList.remove('active');
   tournamentDetailId = null;
+  if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('tournaments');
 }
 
 // ---------- Event wiring ----------
@@ -3676,6 +3805,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
   if (typeof LaneFinder !== 'undefined'){
     try{ LaneFinder.init(); }catch(e){ console.error('LaneFinder init failed:', e); }
+  }
+  if (typeof DetailColumn !== 'undefined'){
+    try{ DetailColumn.init(); }catch(e){ console.error('DetailColumn init failed:', e); }
   }
   if (typeof AlleyDetailSheet !== 'undefined'){
     try{ AlleyDetailSheet.init(); }catch(e){ console.error('AlleyDetailSheet init failed:', e); }
