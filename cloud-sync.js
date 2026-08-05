@@ -457,6 +457,58 @@ const Friends = {
     return data;
   },
 
+  // Directly sets a league's (or tournament's) group_id link in Supabase — bypasses Store's
+  // local-first sync path deliberately, since groups/group_members are inherently multi-user
+  // data that doesn't fit the single-owner localStorage-first model everything else in Store
+  // uses. This is the one field on leagues/tournaments that's written straight to the server.
+  async linkLeagueToGroup(leagueId, groupId){
+    const { error } = await this.client.from('leagues').update({ group_id: groupId }).eq('id', leagueId);
+    if (error) throw error;
+  },
+  async linkTournamentToGroup(tournamentId, groupId){
+    const { error } = await this.client.from('tournaments').update({ group_id: groupId }).eq('id', tournamentId);
+    if (error) throw error;
+  },
+
+  // The actual "invite a friend directly from League Detail" flow: if the league isn't linked to
+  // a shared group yet, create one (named after the league, with a generous default member cap
+  // since a real bowling team can be added to one at a time later anyway) and link it, THEN
+  // invite the person — all in one call, so groups stay an invisible implementation detail
+  // rather than something the person creating a team needs to think about or manage separately.
+  // Returns { groupId, found } where found is the invited person's { userId, username }.
+  async inviteToLeagueTeam(leagueId, leagueName, existingGroupId, username){
+    let groupId = existingGroupId;
+    if (!groupId){
+      const group = await this.createGroup(leagueName || 'My Team', 20);
+      groupId = group.id;
+      await this.linkLeagueToGroup(leagueId, groupId);
+    }
+    const found = await this.inviteToGroupByUsername(groupId, username);
+    return { groupId, found };
+  },
+
+  async inviteToTournamentTeam(tournamentId, tournamentName, existingGroupId, username){
+    let groupId = existingGroupId;
+    if (!groupId){
+      const group = await this.createGroup(tournamentName || 'My Team', 20);
+      groupId = group.id;
+      await this.linkTournamentToGroup(tournamentId, groupId);
+    }
+    const found = await this.inviteToGroupByUsername(groupId, username);
+    return { groupId, found };
+  },
+
+  // Creator-only in practice (RLS on `groups` only permits UPDATE by creator_id — see
+  // schema.sql) — but a non-creator's update matches zero rows under RLS rather than
+  // producing an error (Postgres/Supabase RLS silently filters rows the policy denies, it
+  // doesn't throw), so this explicitly checks the returned row count and throws itself rather
+  // than reporting a false success for an update that silently did nothing.
+  async updateGroupMaxMembers(groupId, newMax){
+    const { data, error } = await this.client.from('groups').update({ max_members: newMax }).eq('id', groupId).select();
+    if (error) throw error;
+    if (!data || !data.length) throw new Error('Only the person who created this team can change its size.');
+  },
+
   // Returns groups this user is a member of (including ones they created), as
   // [{ id, name, creatorId, maxMembers, memberCount, isCreator }].
   async getMyGroups(){
@@ -506,6 +558,40 @@ const Friends = {
       throw error;
     }
     return found;
+  },
+
+  // Fetches the group_id currently stored on a league's Supabase row directly (not from the
+  // local Store, which may be stale relative to what other team members have seen/changed) —
+  // used to check "does this league already have a team" before deciding whether to create one.
+  async getLeagueGroupId(leagueId){
+    const { data, error } = await this.client.from('leagues').select('group_id').eq('id', leagueId).maybeSingle();
+    if (error) throw error;
+    return data ? data.group_id : null;
+  },
+
+  // Invites a friend directly from a League's detail page. If this league has no linked group
+  // yet, one is created automatically (named after the league, capped at the league's own
+  // team_size if that's a sane 2-50 value, or a reasonable default otherwise) and linked before
+  // the invite itself goes through — so from the person's perspective, "invite someone to my
+  // league" is a single action, with the underlying group entirely invisible plumbing.
+  async inviteToLeagueTeam(leagueId, leagueName, teamSizeHint, username){
+    let groupId = await this.getLeagueGroupId(leagueId);
+    if (!groupId){
+      const maxMembers = (Number.isInteger(teamSizeHint) && teamSizeHint >= 2 && teamSizeHint <= 50) ? teamSizeHint : 8;
+      const group = await this.createGroup(leagueName || 'My League', maxMembers);
+      groupId = group.id;
+      const { error } = await this.client.from('leagues').update({ group_id: groupId }).eq('id', leagueId);
+      if (error) throw error;
+      // Keep the local Store copy in sync too, so the rest of the app (which reads leagues from
+      // Store, not Supabase directly) reflects the new link immediately without waiting on the
+      // next full CloudSync push to notice it.
+      if (typeof Store !== 'undefined'){
+        const localLeague = Store.leagueById(leagueId);
+        if (localLeague) localLeague.groupId = groupId;
+      }
+    }
+    const found = await this.inviteToGroupByUsername(groupId, username);
+    return { groupId, invited: found };
   },
 
   // Removing a member: allowed for the group's creator removing anyone, or anyone removing
@@ -581,7 +667,8 @@ function leagueToRow(l, uid){
     season_start: l.seasonStart || '', season_end: l.seasonEnd || '',
     day_of_week: l.dayOfWeek != null ? l.dayOfWeek : null, time: l.time || '',
     notes: l.notes || '', manually_completed: !!l.manuallyCompleted,
-    placement: l.placement || '', placement_notes: l.placementNotes || ''
+    placement: l.placement || '', placement_notes: l.placementNotes || '',
+    group_id: l.groupId || null // links this league to a shared team (see Friends.inviteToLeagueTeam) — must round-trip through every sync or an invite's linkage would silently vanish on the next save
   };
 }
 function rowToLeague(r){
@@ -590,7 +677,7 @@ function rowToLeague(r){
     teamSize: r.team_size, seasonStart: r.season_start || '', seasonEnd: r.season_end || '',
     dayOfWeek: r.day_of_week, time: r.time || '', notes: r.notes || '',
     manuallyCompleted: !!r.manually_completed, placement: r.placement || '',
-    placementNotes: r.placement_notes || ''
+    placementNotes: r.placement_notes || '', groupId: r.group_id || null
   };
 }
 
@@ -600,7 +687,8 @@ function tournamentToRow(t, uid){
     format: t.format || '', entry_fee: t.entryFee || '', date_mode: t.dateMode || 'single',
     single_date: t.singleDate || '', range_start: t.rangeStart || '', range_end: t.rangeEnd || '',
     notes: t.notes || '', manually_completed: !!t.manuallyCompleted,
-    placement: t.placement || '', placement_notes: t.placementNotes || ''
+    placement: t.placement || '', placement_notes: t.placementNotes || '',
+    group_id: t.groupId || null
   };
 }
 function rowToTournament(r){
@@ -609,6 +697,6 @@ function rowToTournament(r){
     entryFee: r.entry_fee || '', dateMode: r.date_mode || 'single',
     singleDate: r.single_date || '', rangeStart: r.range_start || '', rangeEnd: r.range_end || '',
     notes: r.notes || '', manuallyCompleted: !!r.manually_completed,
-    placement: r.placement || '', placementNotes: r.placement_notes || ''
+    placement: r.placement || '', placementNotes: r.placement_notes || '', groupId: r.group_id || null
   };
 }

@@ -1043,6 +1043,13 @@ a.inline-link{ color: var(--brass); }
           <div class="sheet-title" id="groupDetailTitle" style="margin-bottom:0;">Group</div>
         </div>
         <div id="groupDetailInfo" class="small-note" style="margin-bottom:14px;"></div>
+        <div class="field-row" id="groupMaxMembersRow" style="display:none;">
+          <div class="field" style="margin-bottom:0;">
+            <label>Team size limit</label>
+            <input type="number" id="inputGroupMaxMembers" min="2" max="50" />
+          </div>
+          <button class="btn btn-ghost" id="btnSaveGroupMaxMembers" style="flex:0 0 auto; padding:12px 18px; align-self:flex-end;">Update</button>
+        </div>
 
         <div class="field-row" id="groupInviteRow">
           <div class="field" style="margin-bottom:0;">
@@ -1483,6 +1490,20 @@ a.inline-link{ color: var(--brass); }
       <div id="leagueDetailInfo"></div>
       <div class="section-head" style="margin-top:20px;"><span class="section-title">Statistics</span></div>
       <div id="leagueDetailStats"></div>
+
+      <div class="section-head"><span class="section-title">Team</span></div>
+      <div id="leagueTeamSignedOutNotice" class="small-note" style="display:none;">Sign in to an account to invite friends to this league and compare stats.</div>
+      <div id="leagueTeamContent" style="display:none;">
+        <div id="leagueTeamMembersList"></div>
+        <div class="field-row" style="margin-top:8px;">
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" id="inputLeagueTeamInvite" placeholder="Invite by username" autocomplete="off" />
+          </div>
+          <button class="btn btn-primary" id="btnLeagueTeamInvite" style="flex:0 0 auto; padding:12px 18px;">Invite</button>
+        </div>
+        <div id="leagueTeamInviteStatus" class="small-note"></div>
+      </div>
+
       <div class="section-head"><span class="section-title">History</span></div>
       <div id="leagueDetailHistory"></div>
       <div class="btn-row">

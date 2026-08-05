@@ -3834,8 +3834,73 @@ function openLeagueDetail(id){
   renderLeagueDetailInfo(l);
   renderLeagueDetailStats(l);
   renderLeagueDetailHistory(l);
+  renderLeagueTeam(l);
 
   document.getElementById('leagueDetailOverlay').classList.add('active');
+}
+
+// ---------- League Team (friends invited directly from this league) ----------
+async function renderLeagueTeam(l){
+  const signedIn = typeof CloudSync !== 'undefined' && CloudSync.isSignedIn();
+  document.getElementById('leagueTeamSignedOutNotice').style.display = signedIn ? 'none' : '';
+  document.getElementById('leagueTeamContent').style.display = signedIn ? '' : 'none';
+  document.getElementById('leagueTeamInviteStatus').textContent = '';
+  if (!signedIn) return;
+
+  const membersEl = document.getElementById('leagueTeamMembersList');
+  membersEl.innerHTML = `<div class="small-note">Loading…</div>`;
+  try{
+    const groupId = l.groupId || await Friends.getLeagueGroupId(l.id);
+    if (!groupId){
+      membersEl.innerHTML = `<div class="small-note">Just you so far — invite a friend below to start comparing stats for this league.</div>`;
+      return;
+    }
+    const [members, games] = await Promise.all([
+      Friends.getGroupMembers(groupId),
+      Friends.getGroupGames(groupId)
+    ]);
+    // Per-member game count + average for THIS league specifically, computed client-side from
+    // the already-scoped-by-league rows get_group_games() returns — no separate query needed.
+    const byUser = {};
+    games.forEach(g => {
+      if (!byUser[g.user_id]) byUser[g.user_id] = { total: 0, count: 0 };
+      byUser[g.user_id].total += g.score;
+      byUser[g.user_id].count += 1;
+    });
+    membersEl.innerHTML = members.map(m => {
+      const stats = byUser[m.userId];
+      const avgStr = stats ? (stats.total / stats.count).toFixed(1) + ' avg, ' + stats.count + ' games' : 'No games logged yet';
+      return `
+        <div class="lineup-row">
+          <span class="lineup-name">${escapeHtml(m.username)}${m.isCreator ? ' <span class="league-card-badge current">Creator</span>' : ''}</span>
+          <span class="small-note">${escapeHtml(avgStr)}</span>
+        </div>
+      `;
+    }).join('');
+  } catch(e){
+    console.error('renderLeagueTeam failed:', e);
+    membersEl.innerHTML = `<div class="small-note">Could not load team info — check your connection.</div>`;
+  }
+}
+
+async function inviteToLeagueTeam(){
+  if (!leagueDetailId) return;
+  const l = Store.leagueById(leagueDetailId);
+  if (!l) return;
+  const input = document.getElementById('inputLeagueTeamInvite');
+  const status = document.getElementById('leagueTeamInviteStatus');
+  const username = input.value.trim();
+  if (!username){ toast('Enter a username to invite'); return; }
+  status.textContent = 'Inviting…';
+  try{
+    const { invited } = await Friends.inviteToLeagueTeam(l.id, l.name, l.teamSize, username);
+    input.value = '';
+    await renderLeagueTeam(Store.leagueById(leagueDetailId)); // re-fetch from Store since Friends.inviteToLeagueTeam may have just updated its groupId
+    document.getElementById('leagueTeamInviteStatus').textContent = `${invited.username} added to the team.`;
+  } catch(e){
+    console.error('inviteToLeagueTeam failed:', e);
+    status.textContent = e.message || 'Could not send that invite.';
+  }
 }
 
 function renderLeagueDetailInfo(l){
@@ -4128,6 +4193,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
       closeLeagueDetail();
       LeaguesUI.openEdit(id);
     });
+    safeOn('btnLeagueTeamInvite', 'click', inviteToLeagueTeam);
+    safeOn('inputLeagueTeamInvite', 'keydown', (e)=>{ if (e.key === 'Enter') inviteToLeagueTeam(); });
   }catch(e){ console.error('League detail sheet wiring failed:', e); }
 
   try{
