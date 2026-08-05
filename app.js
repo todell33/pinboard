@@ -1366,6 +1366,7 @@ const Render = {
     if (Views.current==='tournaments' && typeof TournamentsUI !== 'undefined') TournamentsUI.render();
     if (Views.current==='lanefinder' && typeof LaneFinder !== 'undefined') LaneFinder.onViewShown();
     if (Views.current==='balls' && typeof BallsUI !== 'undefined') BallsUI.render();
+    if (Views.current==='friends' && typeof FriendsUI !== 'undefined') FriendsUI.render();
     if (Views.current==='settings' && typeof SettingsUI !== 'undefined') SettingsUI.render();
   },
 
@@ -1638,6 +1639,15 @@ function toast(msg, ms=2200){
 const SettingsUI = {
   render(){
     this.renderAlleys();
+    this.renderUsernameVisibility();
+  },
+
+  renderUsernameVisibility(){
+    const group = document.getElementById('usernameSettingsGroup');
+    if (!group) return;
+    const signedIn = typeof CloudSync !== 'undefined' && CloudSync.isSignedIn();
+    group.style.display = signedIn ? '' : 'none';
+    if (signedIn && typeof FriendsUI !== 'undefined') FriendsUI.loadCurrentUsername();
   },
 
   renderAlleys(){
@@ -1932,6 +1942,502 @@ function closeBallDetail(){
   ballDetailId = null;
   if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('balls');
 }
+
+// ---------- My Friends tab ----------
+let friendDetailId = null; // the OTHER user's userId, while the friend detail sheet is open
+let groupDetailId = null;  // the group's id, while the group detail sheet is open
+
+const FriendsUI = {
+  activeTab: 'friends',
+
+  render(){
+    const signedIn = typeof CloudSync !== 'undefined' && CloudSync.isSignedIn();
+    document.getElementById('friendsSignedOutNotice').style.display = signedIn ? 'none' : '';
+    document.getElementById('friendsSignedInContent').style.display = signedIn ? '' : 'none';
+    if (!signedIn) return;
+
+    this.renderFriendsList();
+    if (this.activeTab === 'requests') this.renderRequests();
+    if (this.activeTab === 'groups') this.renderGroups();
+  },
+
+  init(){
+    // ---------- Tab switching ----------
+    const tabToggle = document.getElementById('friendsTabToggle');
+    if (tabToggle){
+      tabToggle.querySelectorAll('.ctx-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          tabToggle.querySelectorAll('.ctx-btn').forEach(b=>b.classList.remove('active'));
+          btn.classList.add('active');
+          this.activeTab = btn.dataset.tab;
+          ['friends','requests','groups'].forEach(t=>{
+            document.getElementById('friendsTabPanel-'+t).style.display = (t===this.activeTab) ? '' : 'none';
+          });
+          this.render();
+        });
+      });
+    }
+
+    // ---------- Username (Settings page) ----------
+    const btnSaveUsername = document.getElementById('btnSaveUsername');
+    if (btnSaveUsername){
+      btnSaveUsername.addEventListener('click', async ()=>{
+        const input = document.getElementById('inputUsername');
+        const note = document.getElementById('usernameFieldNote');
+        const val = input.value.trim();
+        if (!val){ toast('Enter a username first'); return; }
+        btnSaveUsername.disabled = true;
+        try{
+          const result = await Friends.setUsername(val);
+          if (result.available){
+            note.textContent = '';
+            document.getElementById('usernameStatus').textContent = 'Your username: ' + val.toLowerCase();
+            input.value = '';
+            toast('Username saved');
+          } else {
+            note.textContent = result.reason;
+          }
+        } catch(e){
+          console.error('setUsername failed:', e);
+          toast('Could not save username — check your connection');
+        } finally {
+          btnSaveUsername.disabled = false;
+        }
+      });
+    }
+
+    // ---------- Friend search ----------
+    const btnFriendSearch = document.getElementById('btnFriendSearch');
+    if (btnFriendSearch){
+      btnFriendSearch.addEventListener('click', ()=> this.doFriendSearch());
+    }
+    const inputFriendSearch = document.getElementById('inputFriendSearch');
+    if (inputFriendSearch){
+      inputFriendSearch.addEventListener('keydown', (e)=>{ if (e.key === 'Enter') this.doFriendSearch(); });
+    }
+
+    // ---------- Friends list clicks (open detail) ----------
+    const friendsList = document.getElementById('friendsList');
+    if (friendsList){
+      friendsList.addEventListener('click', (e)=>{
+        const row = e.target.closest('[data-friend-user-id]');
+        if (row) this.openFriendDetail(row.dataset.friendUserId, row.dataset.friendshipId, row.dataset.username);
+      });
+    }
+
+    // ---------- Requests: accept/decline ----------
+    const incomingList = document.getElementById('incomingRequestsList');
+    if (incomingList){
+      incomingList.addEventListener('click', async (e)=>{
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const friendshipId = btn.dataset.friendshipId;
+        try{
+          if (btn.dataset.action === 'accept-request'){
+            await Friends.acceptFriendRequest(friendshipId);
+            toast('Friend request accepted');
+          } else if (btn.dataset.action === 'decline-request'){
+            await Friends.removeFriendship(friendshipId);
+            toast('Request declined');
+          }
+          this.renderRequests();
+          this.renderFriendsList();
+        } catch(e){
+          console.error('Request action failed:', e);
+          toast('Something went wrong — check your connection');
+        }
+      });
+    }
+    const outgoingList = document.getElementById('outgoingRequestsList');
+    if (outgoingList){
+      outgoingList.addEventListener('click', async (e)=>{
+        const btn = e.target.closest('[data-action="cancel-request"]');
+        if (!btn) return;
+        try{
+          await Friends.removeFriendship(btn.dataset.friendshipId);
+          toast('Request canceled');
+          this.renderRequests();
+        } catch(e){
+          console.error('Cancel request failed:', e);
+          toast('Something went wrong — check your connection');
+        }
+      });
+    }
+
+    // ---------- Friend Detail sheet ----------
+    const btnCloseFriendDetail = document.getElementById('btnCloseFriendDetail');
+    if (btnCloseFriendDetail){
+      btnCloseFriendDetail.addEventListener('click', ()=> this.closeFriendDetail());
+    }
+    const friendDetailOverlay = document.getElementById('friendDetailOverlay');
+    if (friendDetailOverlay){
+      friendDetailOverlay.addEventListener('click', (e)=>{
+        if (e.target.id === 'friendDetailOverlay') this.closeFriendDetail();
+      });
+    }
+    const btnRemoveFriend = document.getElementById('btnRemoveFriend');
+    if (btnRemoveFriend){
+      btnRemoveFriend.addEventListener('click', async ()=>{
+        if (!friendDetailId) return;
+        if (!confirm('Remove this friend? They\'ll need to send a new request to reconnect.')) return;
+        try{
+          const friends = await Friends.getFriends();
+          const match = friends.find(f => f.userId === friendDetailId);
+          if (match) await Friends.removeFriendship(match.friendshipId);
+          this.closeFriendDetail();
+          this.renderFriendsList();
+          toast('Friend removed');
+        } catch(e){
+          console.error('Remove friend failed:', e);
+          toast('Something went wrong — check your connection');
+        }
+      });
+    }
+    const shareToggles = document.getElementById('friendShareToggles');
+    if (shareToggles){
+      shareToggles.addEventListener('change', async (e)=>{
+        const checkbox = e.target.closest('input[type="checkbox"][data-stat-key]');
+        if (!checkbox || !friendDetailId) return;
+        try{
+          await Friends.setShareWith(friendDetailId, checkbox.dataset.statKey, checkbox.checked);
+        } catch(e){
+          console.error('setShareWith failed:', e);
+          toast('Could not save sharing preference — check your connection');
+          checkbox.checked = !checkbox.checked; // revert the visible toggle since the save failed
+        }
+      });
+    }
+
+    // ---------- Groups tab ----------
+    const groupsList = document.getElementById('groupsList');
+    if (groupsList){
+      groupsList.addEventListener('click', (e)=>{
+        const row = e.target.closest('[data-group-id]');
+        if (row) this.openGroupDetail(row.dataset.groupId);
+      });
+    }
+    const btnAddGroup = document.getElementById('btnAddGroup');
+    if (btnAddGroup){
+      btnAddGroup.addEventListener('click', ()=> this.openAddGroup());
+    }
+    const btnCancelAddGroup = document.getElementById('btnCancelAddGroup');
+    if (btnCancelAddGroup){
+      btnCancelAddGroup.addEventListener('click', ()=> this.closeAddGroup());
+    }
+    const btnSaveAddGroup = document.getElementById('btnSaveAddGroup');
+    if (btnSaveAddGroup){
+      btnSaveAddGroup.addEventListener('click', ()=> this.saveAddGroup());
+    }
+
+    // ---------- Group Detail sheet ----------
+    const btnCloseGroupDetail = document.getElementById('btnCloseGroupDetail');
+    if (btnCloseGroupDetail){
+      btnCloseGroupDetail.addEventListener('click', ()=> this.closeGroupDetail());
+    }
+    const groupDetailOverlay = document.getElementById('groupDetailOverlay');
+    if (groupDetailOverlay){
+      groupDetailOverlay.addEventListener('click', (e)=>{
+        if (e.target.id === 'groupDetailOverlay') this.closeGroupDetail();
+      });
+    }
+    const btnGroupInvite = document.getElementById('btnGroupInvite');
+    if (btnGroupInvite){
+      btnGroupInvite.addEventListener('click', ()=> this.inviteToGroup());
+    }
+    const groupMembersList = document.getElementById('groupMembersList');
+    if (groupMembersList){
+      groupMembersList.addEventListener('click', async (e)=>{
+        const btn = e.target.closest('[data-action="remove-member"]');
+        if (!btn || !groupDetailId) return;
+        if (!confirm('Remove this person from the group?')) return;
+        try{
+          await Friends.removeFromGroup(groupDetailId, btn.dataset.userId);
+          this.renderGroupDetail();
+        } catch(e){
+          console.error('Remove member failed:', e);
+          toast('Something went wrong — check your connection');
+        }
+      });
+    }
+    const btnDeleteGroup = document.getElementById('btnDeleteGroup');
+    if (btnDeleteGroup){
+      btnDeleteGroup.addEventListener('click', async ()=>{
+        if (!groupDetailId) return;
+        if (!confirm('Delete this group entirely? This removes it for every member, not just you.')) return;
+        try{
+          const { error } = await CloudSync.client.from('groups').delete().eq('id', groupDetailId);
+          if (error) throw error;
+          this.closeGroupDetail();
+          this.renderGroups();
+          toast('Group deleted');
+        } catch(e){
+          console.error('Delete group failed:', e);
+          toast('Something went wrong — check your connection');
+        }
+      });
+    }
+  },
+
+  // ---------- Username ----------
+  async loadCurrentUsername(){
+    try{
+      const username = await Friends.getMyUsername();
+      const status = document.getElementById('usernameStatus');
+      if (status) status.textContent = username ? ('Your username: ' + username) : 'Not set — pick one so friends can find you';
+    } catch(e){
+      console.error('loadCurrentUsername failed:', e);
+    }
+  },
+
+  // ---------- Friend search ----------
+  async doFriendSearch(){
+    const input = document.getElementById('inputFriendSearch');
+    const resultEl = document.getElementById('friendSearchResult');
+    const query = input.value.trim();
+    if (!query){ toast('Enter a username to search'); return; }
+    resultEl.innerHTML = `<div class="small-note">Searching…</div>`;
+    try{
+      const found = await Friends.findByUsername(query);
+      if (!found){
+        resultEl.innerHTML = `<div class="small-note">No user found with that username.</div>`;
+        return;
+      }
+      resultEl.innerHTML = `
+        <div class="lineup-row">
+          <span class="lineup-name">${escapeHtml(found.username)}</span>
+          <button class="btn btn-primary" id="btnSendFriendRequest" style="padding:8px 14px;">Add Friend</button>
+        </div>
+      `;
+      document.getElementById('btnSendFriendRequest').addEventListener('click', async ()=>{
+        try{
+          await Friends.sendFriendRequest(found.userId);
+          toast('Friend request sent to ' + found.username);
+          resultEl.innerHTML = '';
+          input.value = '';
+          this.renderRequests();
+        } catch(e){
+          console.error('sendFriendRequest failed:', e);
+          toast(e.message || 'Could not send friend request');
+        }
+      });
+    } catch(e){
+      console.error('doFriendSearch failed:', e);
+      resultEl.innerHTML = `<div class="small-note">Search failed — check your connection.</div>`;
+    }
+  },
+
+  // ---------- Friends list ----------
+  async renderFriendsList(){
+    const el = document.getElementById('friendsList');
+    if (!el) return;
+    try{
+      const friends = await Friends.getFriends();
+      if (!friends.length){
+        el.innerHTML = `<div class="lineup-empty">No friends yet — search for a username above to send a request.</div>`;
+        return;
+      }
+      el.innerHTML = friends.map(f => `
+        <div class="lineup-row" data-friend-user-id="${f.userId}" data-friendship-id="${f.friendshipId}" data-username="${escapeHtml(f.username)}" style="cursor:pointer;">
+          <span class="lineup-name">${escapeHtml(f.username)}</span>
+        </div>
+      `).join('');
+    } catch(e){
+      console.error('renderFriendsList failed:', e);
+      el.innerHTML = `<div class="small-note">Could not load friends — check your connection.</div>`;
+    }
+  },
+
+  // ---------- Requests ----------
+  async renderRequests(){
+    const incomingEl = document.getElementById('incomingRequestsList');
+    const outgoingEl = document.getElementById('outgoingRequestsList');
+    if (!incomingEl || !outgoingEl) return;
+    try{
+      const { incoming, outgoing } = await Friends.getPendingRequests();
+
+      incomingEl.innerHTML = incoming.length ? incoming.map(r => `
+        <div class="lineup-row">
+          <span class="lineup-name">${escapeHtml(r.username)}</span>
+          <button class="btn btn-primary" data-action="accept-request" data-friendship-id="${r.friendshipId}" style="padding:6px 12px; margin-right:6px;">Accept</button>
+          <button class="lineup-delete" data-action="decline-request" data-friendship-id="${r.friendshipId}">Decline</button>
+        </div>
+      `).join('') : `<div class="lineup-empty">No incoming requests.</div>`;
+
+      outgoingEl.innerHTML = outgoing.length ? outgoing.map(r => `
+        <div class="lineup-row">
+          <span class="lineup-name">${escapeHtml(r.username)}</span>
+          <span class="small-note" style="margin-right:8px;">Pending</span>
+          <button class="lineup-delete" data-action="cancel-request" data-friendship-id="${r.friendshipId}">Cancel</button>
+        </div>
+      `).join('') : `<div class="lineup-empty">No sent requests.</div>`;
+    } catch(e){
+      console.error('renderRequests failed:', e);
+      incomingEl.innerHTML = `<div class="small-note">Could not load requests — check your connection.</div>`;
+    }
+  },
+
+  // ---------- Friend Detail ----------
+  async openFriendDetail(userId, friendshipId, username){
+    friendDetailId = userId;
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('friendDetailOverlay', 'friends');
+    document.getElementById('friendDetailTitle').textContent = username;
+    document.getElementById('friendDetailOverlay').classList.add('active');
+
+    const statsEl = document.getElementById('friendSharedStats');
+    statsEl.textContent = 'Loading…';
+    try{
+      const [stats, mySharedKeys] = await Promise.all([
+        Friends.getFriendStats(userId),
+        Friends.getMySharesWith(userId)
+      ]);
+
+      const sharedKeys = Object.keys(stats);
+      statsEl.innerHTML = sharedKeys.length ? sharedKeys.map(key => {
+        const label = (Friends.STAT_KEYS.find(s => s.key === key) || {}).label || key;
+        return `<div class="league-detail-info-row"><span>${escapeHtml(label)}</span><span style="margin-left:auto; font-weight:600;">${escapeHtml(stats[key])}</span></div>`;
+      }).join('') : `<div class="small-note">${escapeHtml(username)} hasn't shared any stats with you yet.</div>`;
+
+      document.getElementById('friendShareToggles').innerHTML = Friends.STAT_KEYS.map(s => `
+        <label class="settings-row" style="cursor:pointer;">
+          <span class="settings-label" style="font-size:14px; font-weight:400;">${escapeHtml(s.label)}</span>
+          <input type="checkbox" data-stat-key="${s.key}" ${mySharedKeys.includes(s.key) ? 'checked' : ''} style="width:20px; height:20px;" />
+        </label>
+      `).join('');
+    } catch(e){
+      console.error('openFriendDetail load failed:', e);
+      statsEl.textContent = 'Could not load shared stats — check your connection.';
+    }
+  },
+
+  closeFriendDetail(){
+    document.getElementById('friendDetailOverlay').classList.remove('active');
+    friendDetailId = null;
+    if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('friends');
+  },
+
+  // ---------- Groups list ----------
+  async renderGroups(){
+    const el = document.getElementById('groupsList');
+    if (!el) return;
+    try{
+      const groups = await Friends.getMyGroups();
+      if (!groups.length){
+        el.innerHTML = `<div class="lineup-empty">No groups yet — create one to share stats with a whole team or league.</div>`;
+        return;
+      }
+      el.innerHTML = groups.map(g => `
+        <div class="league-card" data-group-id="${g.id}" style="cursor:pointer;">
+          <div class="league-card-name">${escapeHtml(g.name)}${g.isCreator ? ' <span class="league-card-badge current">Creator</span>' : ''}</div>
+          <div class="league-card-row"><span class="icon">i</span>${g.memberCount} / ${g.maxMembers} members</div>
+        </div>
+      `).join('');
+    } catch(e){
+      console.error('renderGroups failed:', e);
+      el.innerHTML = `<div class="small-note">Could not load groups — check your connection.</div>`;
+    }
+  },
+
+  // ---------- Add Group ----------
+  openAddGroup(){
+    document.getElementById('inputNewGroupName').value = '';
+    document.getElementById('inputNewGroupMaxMembers').value = '6';
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('addGroupOverlay', 'friends');
+    document.getElementById('addGroupOverlay').classList.add('active');
+  },
+  closeAddGroup(){
+    document.getElementById('addGroupOverlay').classList.remove('active');
+    if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('friends');
+  },
+  async saveAddGroup(){
+    const name = document.getElementById('inputNewGroupName').value.trim();
+    const maxMembers = parseInt(document.getElementById('inputNewGroupMaxMembers').value, 10);
+    if (!name){ toast('Enter a group name'); return; }
+    if (!maxMembers || maxMembers < 2 || maxMembers > 50){ toast('Max members must be between 2 and 50'); return; }
+    try{
+      await Friends.createGroup(name, maxMembers);
+      this.closeAddGroup();
+      this.renderGroups();
+      toast('Group created');
+    } catch(e){
+      console.error('createGroup failed:', e);
+      toast('Could not create group — check your connection');
+    }
+  },
+
+  // ---------- Group Detail ----------
+  async openGroupDetail(groupId){
+    groupDetailId = groupId;
+    if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('groupDetailOverlay', 'friends');
+    document.getElementById('groupDetailOverlay').classList.add('active');
+    await this.renderGroupDetail();
+  },
+
+  async renderGroupDetail(){
+    if (!groupDetailId) return;
+    try{
+      const groups = await Friends.getMyGroups();
+      const group = groups.find(g => g.id === groupDetailId);
+      if (!group){
+        toast('This group no longer exists');
+        this.closeGroupDetail();
+        return;
+      }
+      document.getElementById('groupDetailTitle').textContent = group.name;
+      document.getElementById('groupDetailInfo').textContent = `${group.memberCount} / ${group.maxMembers} members`;
+      document.getElementById('btnDeleteGroup').style.display = group.isCreator ? '' : 'none';
+      document.getElementById('groupInviteStatus').textContent = '';
+
+      const members = await Friends.getGroupMembers(groupDetailId);
+      document.getElementById('groupMembersList').innerHTML = members.map(m => `
+        <div class="lineup-row">
+          <span class="lineup-name">${escapeHtml(m.username)}${m.isCreator ? ' <span class="league-card-badge current">Creator</span>' : ''}</span>
+          ${group.isCreator && !m.isCreator ? `<button class="lineup-delete" data-action="remove-member" data-user-id="${m.userId}">Remove</button>` : ''}
+        </div>
+      `).join('');
+
+      const games = await Friends.getGroupGames(groupDetailId);
+      const gamesEl = document.getElementById('groupGamesList');
+      if (!games.length){
+        gamesEl.innerHTML = `<div class="small-note">No games logged under this group's linked league/tournament yet. Link a league or tournament to this group (edit it and set its Group) for games to show up here.</div>`;
+      } else {
+        gamesEl.innerHTML = games.slice(0, 30).map(g => `
+          <div class="league-detail-info-row">
+            <span>${escapeHtml(g.username || 'Unknown')} — ${escapeHtml(fmtDateLong(g.date))}</span>
+            <span style="margin-left:auto; font-weight:600;">${g.score}</span>
+          </div>
+        `).join('');
+      }
+    } catch(e){
+      console.error('renderGroupDetail failed:', e);
+      toast('Could not load group details — check your connection');
+    }
+  },
+
+  closeGroupDetail(){
+    document.getElementById('groupDetailOverlay').classList.remove('active');
+    groupDetailId = null;
+    if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('friends');
+  },
+
+  async inviteToGroup(){
+    if (!groupDetailId) return;
+    const input = document.getElementById('inputGroupInviteUsername');
+    const status = document.getElementById('groupInviteStatus');
+    const username = input.value.trim();
+    if (!username){ toast('Enter a username to invite'); return; }
+    status.textContent = 'Inviting…';
+    try{
+      const found = await Friends.inviteToGroupByUsername(groupDetailId, username);
+      input.value = '';
+      await this.renderGroupDetail(); // clears status as part of its own render, so the success message below must come AFTER this, not before
+      document.getElementById('groupInviteStatus').textContent = `${found.username} added to the group.`;
+      this.renderGroups();
+    } catch(e){
+      console.error('inviteToGroup failed:', e);
+      status.textContent = e.message || 'Could not invite that user.';
+    }
+  }
+};
 
 // ---------- Leagues tab ----------
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -3790,6 +4296,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   if (typeof CloudSync !== 'undefined'){
     try{ CloudSync.init(); }catch(e){ console.error('CloudSync init failed:', e); }
+  }
+  if (typeof FriendsUI !== 'undefined'){
+    try{ FriendsUI.init(); }catch(e){ console.error('FriendsUI init failed:', e); }
   }
   if (typeof ScoreScan !== 'undefined'){
     try{ ScoreScan.init(); }catch(e){ console.error('ScoreScan init failed:', e); }

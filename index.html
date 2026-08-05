@@ -985,6 +985,128 @@ a.inline-link{ color: var(--brass); }
       </div>
     </section>
 
+    <!-- ============ MY FRIENDS VIEW ============ -->
+    <section class="view view-two-col" id="view-friends">
+      <div class="page-main-col">
+        <div class="section-head" style="margin-top:0;">
+          <span class="section-title">My Friends</span>
+        </div>
+        <div id="friendsSignedOutNotice" class="empty-state" style="display:none;">
+          <div class="pin down"></div>
+          <p>Sign in to an account (Settings → Your Account) to add friends and compare stats. Friends and groups are tied to your account, not this device.</p>
+        </div>
+        <div id="friendsSignedInContent" style="display:none;">
+          <div class="ctx-toggle" id="friendsTabToggle">
+            <button class="ctx-btn active" data-tab="friends">Friends</button>
+            <button class="ctx-btn" data-tab="requests">Requests</button>
+            <button class="ctx-btn" data-tab="groups">Groups</button>
+          </div>
+
+          <div id="friendsTabPanel-friends">
+            <div class="field-row" style="margin-top:14px;">
+              <div class="field" style="margin-bottom:0;">
+                <input type="text" id="inputFriendSearch" placeholder="Search by username" autocomplete="off" />
+              </div>
+              <button class="btn btn-primary" id="btnFriendSearch" style="flex:0 0 auto; padding:12px 18px;">Search</button>
+            </div>
+            <div id="friendSearchResult"></div>
+            <div class="section-head"><span class="section-title" style="font-size:13px;">Your Friends</span></div>
+            <div id="friendsList"></div>
+          </div>
+
+          <div id="friendsTabPanel-requests" style="display:none;">
+            <div class="section-head" style="margin-top:14px;"><span class="section-title" style="font-size:13px;">Incoming</span></div>
+            <div id="incomingRequestsList"></div>
+            <div class="section-head"><span class="section-title" style="font-size:13px;">Sent</span></div>
+            <div id="outgoingRequestsList"></div>
+          </div>
+
+          <div id="friendsTabPanel-groups" style="display:none;">
+            <div id="groupsList" style="margin-top:14px;"></div>
+            <button class="btn btn-primary" id="btnAddGroup" style="width:100%; margin-top:12px;">+ Create Group</button>
+          </div>
+        </div>
+      </div>
+      <div class="page-detail-col">
+        <div class="page-detail-placeholder">
+          <span class="icon">◈</span>
+          <span>Select a friend or group to view details.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ GROUP DETAIL SHEET ============ -->
+    <div class="sheet-overlay" id="groupDetailOverlay">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <div class="league-detail-header">
+          <div class="sheet-title" id="groupDetailTitle" style="margin-bottom:0;">Group</div>
+        </div>
+        <div id="groupDetailInfo" class="small-note" style="margin-bottom:14px;"></div>
+
+        <div class="field-row" id="groupInviteRow">
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" id="inputGroupInviteUsername" placeholder="Invite by username" autocomplete="off" />
+          </div>
+          <button class="btn btn-primary" id="btnGroupInvite" style="flex:0 0 auto; padding:12px 18px;">Invite</button>
+        </div>
+        <div id="groupInviteStatus" class="small-note"></div>
+
+        <div class="section-head"><span class="section-title">Members</span></div>
+        <div id="groupMembersList"></div>
+
+        <div class="section-head"><span class="section-title">Team Games</span></div>
+        <div id="groupGamesList"></div>
+
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="btnCloseGroupDetail">Close</button>
+        </div>
+        <button class="btn btn-danger" id="btnDeleteGroup" style="width:100%; margin-top:10px; display:none;">Delete Group</button>
+      </div>
+    </div>
+
+    <!-- ============ FRIEND DETAIL SHEET ============ -->
+    <div class="sheet-overlay" id="friendDetailOverlay">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <div class="league-detail-header">
+          <div class="sheet-title" id="friendDetailTitle" style="margin-bottom:0;">Friend</div>
+        </div>
+
+        <div class="section-head" style="margin-top:0;"><span class="section-title">Shared With You</span></div>
+        <div id="friendSharedStats" class="small-note">Loading…</div>
+
+        <div class="section-head"><span class="section-title">What You Share With Them</span></div>
+        <div id="friendShareToggles"></div>
+
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="btnRemoveFriend">Remove Friend</button>
+          <button class="btn btn-primary" id="btnCloseFriendDetail">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ ADD GROUP SHEET ============ -->
+    <div class="sheet-overlay" id="addGroupOverlay">
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <div class="sheet-title">Create Group</div>
+        <div class="field">
+          <label>Group name</label>
+          <input type="text" id="inputNewGroupName" placeholder="e.g. Thursday Night Dragons" />
+        </div>
+        <div class="field">
+          <label>Maximum members (including you)</label>
+          <input type="number" id="inputNewGroupMaxMembers" min="2" max="50" value="6" />
+        </div>
+        <div class="small-note">Anyone in the group can invite others by username, up to this limit. Only you (as creator) can remove members or delete the group.</div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="btnCancelAddGroup">Cancel</button>
+          <button class="btn btn-primary" id="btnSaveAddGroup">Create</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ============ ALLEY DETAIL SHEET ============ -->
     <div class="sheet-overlay" id="alleyDetailSheetOverlay">
       <div class="sheet">
@@ -1061,6 +1183,21 @@ a.inline-link{ color: var(--brass); }
         <button class="btn btn-ghost" id="btnCloudSignOut" style="width:100%; margin-top:10px; display:none;">Sign Out</button>
         <div class="small-note" id="accountsSetupHint"></div>
         <div class="small-note">Signing in ties your games, leagues, tournaments, and ball lineup to your account, so they follow you to any device you sign into. This replaces the old per-device Google Sheets sync.</div>
+      </div>
+
+      <div class="settings-group" id="usernameSettingsGroup" style="display:none;">
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Username</div>
+            <div class="settings-sub" id="usernameStatus">Not set — pick one so friends can find you</div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:10px;">
+          <input type="text" id="inputUsername" placeholder="3-20 characters: letters, numbers, underscore" autocomplete="off" />
+        </div>
+        <div class="small-note" id="usernameFieldNote"></div>
+        <button class="btn btn-primary" id="btnSaveUsername" style="width:100%; margin-top:8px;">Save Username</button>
+        <div class="small-note">This is what friends search for on the My Friends page — it's the only part of your account visible to people who aren't yet your friend.</div>
       </div>
 
       <div class="settings-group">
@@ -1145,6 +1282,7 @@ a.inline-link{ color: var(--brass); }
     <button class="nav-btn" data-view="tournaments"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 2h8v1.2c1.6.15 2.6.7 2.6 1.8 0 1.9-1.5 3.6-3.3 3.9-.5 1.4-1.5 2.4-2.7 2.8v2.1h2.1c.5 0 .9.4.9.9v.9H6.4v-.9c0-.5.4-.9.9-.9h2.1v-2.1c-1.2-.4-2.2-1.4-2.7-2.8C4.9 8.6 3.4 6.9 3.4 5c0-1.1 1-1.65 2.6-1.8V2zm0 2.05c-.85.1-1.3.35-1.3.95 0 1.15.85 2.35 1.9 2.75A9 9 0 0 1 6 6V4.05zm8 0V6c0 .6-.05 1.2-.15 1.75 1.05-.4 1.9-1.6 1.9-2.75 0-.6-.45-.85-1.3-.95zM6.4 16.4h7.2c.5 0 .9.4.9.9V18H5.5v-.7c0-.5.4-.9.9-.9z" fill="currentColor"/></svg></span>Tournaments</button>
     <button class="nav-btn" data-view="balls"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="currentColor"/><circle cx="8.3" cy="6.6" r="1" fill="var(--walnut)"/><circle cx="11.4" cy="6.3" r="1" fill="var(--walnut)"/><circle cx="9.9" cy="9.1" r="1" fill="var(--walnut)"/></svg></span>Balls</button>
     <button class="nav-btn" data-view="lanefinder"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 1.5c-3.3 0-6 2.6-6 5.9 0 4.4 6 10.1 6 10.1s6-5.7 6-10.1c0-3.3-2.7-5.9-6-5.9zm0 8.1c-1.3 0-2.4-1.05-2.4-2.35S8.7 4.9 10 4.9s2.4 1.05 2.4 2.35S11.3 9.6 10 9.6z" fill="currentColor"/></svg></span>Lane Finder</button>
+    <button class="nav-btn" data-view="friends"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="6.5" r="2.4" fill="currentColor"/><path d="M2.2 15.5c0-2.8 2.1-4.5 4.8-4.5s4.8 1.7 4.8 4.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="14.2" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M12.6 11.4c1.9.2 3.4 1.7 3.4 4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>My Friends</button>
     <button class="nav-btn" data-view="settings"><span class="nav-icon-svg"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M11.1 2.2l.4 1.9c.5.15.95.35 1.35.6l1.7-.9 1.4 1.4-.9 1.7c.25.4.45.85.6 1.35l1.9.4v2l-1.9.4c-.15.5-.35.95-.6 1.35l.9 1.7-1.4 1.4-1.7-.9c-.4.25-.85.45-1.35.6l-.4 1.9h-2l-.4-1.9c-.5-.15-.95-.35-1.35-.6l-1.7.9-1.4-1.4.9-1.7c-.25-.4-.45-.85-.6-1.35l-1.9-.4v-2l1.9-.4c.15-.5.35-.95.6-1.35l-.9-1.7 1.4-1.4 1.7.9c.4-.25.85-.45 1.35-.6l.4-1.9z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="10" cy="10" r="2.3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></span>Settings</button>
   </nav>
 
