@@ -2,7 +2,7 @@
 // Because the fetch handler below is network-first for app files, this mainly
 // controls cleanup of old cache storage — but keeping it accurate is what lets
 // old, mismatched file versions get purged instead of lingering indefinitely.
-const CACHE_NAME = 'pinboard-v52';
+const CACHE_NAME = 'pinboard-v53';
 const ASSETS = [
   './index.html',
   './app.js',

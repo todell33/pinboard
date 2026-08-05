@@ -596,7 +596,14 @@ function scoreFrames(frames){
 // ---------- Views / Navigation ----------
 const Views = {
   current: 'home',
-  show(name){
+  returnTo: 'home', // where a "back" button on the current view should return to, if it has one
+
+  show(name, opts){
+    // Remember where to go "back" to when opening a page reached via a back button (like
+    // league-detail) — defaults to staying at whatever it already was otherwise, so navigating
+    // normally (via the drawer) never clobbers a stale back-target for an unrelated page.
+    if (opts && opts.returnTo) this.returnTo = opts.returnTo;
+
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     const targetView = document.getElementById('view-'+name);
     targetView.classList.add('active');
@@ -3818,17 +3825,18 @@ function closeSessionDetail(){
   if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed(Views.current);
 }
 
-// ---------- League Detail Sheet ----------
-// Shown when tapping a league card from the Leagues tab — shows the league's info, its
-// scratch stats, and its game history (grouped into sessions, same as the main History tab),
-// with an edit icon in the header for jumping to the existing add/edit form.
+// ---------- League Detail Page ----------
+// Reached by tapping a league card from the Leagues tab — its own full page (not a popup),
+// with a back button returning to wherever it was opened from. Shows the league's info, its
+// scratch stats, a Team section (invite/compare with teammates), and its game history (grouped
+// into sessions, same as the main History tab), with an edit icon in the header for jumping to
+// the existing add/edit form.
 let leagueDetailId = null;
 
 function openLeagueDetail(id){
   const l = Store.leagueById(id);
   if (!l) return;
   leagueDetailId = id;
-  if (typeof DetailColumn !== 'undefined') DetailColumn.relocate('leagueDetailOverlay', 'leagues');
 
   document.getElementById('leagueDetailTitle').textContent = l.name;
   renderLeagueDetailInfo(l);
@@ -3836,7 +3844,7 @@ function openLeagueDetail(id){
   renderLeagueDetailHistory(l);
   renderLeagueTeam(l);
 
-  document.getElementById('leagueDetailOverlay').classList.add('active');
+  Views.show('league-detail', { returnTo: 'leagues' });
 }
 
 // ---------- League Team (friends invited directly from this league) ----------
@@ -3983,9 +3991,8 @@ function renderLeagueDetailHistory(l){
 }
 
 function closeLeagueDetail(){
-  document.getElementById('leagueDetailOverlay').classList.remove('active');
   leagueDetailId = null;
-  if (typeof DetailColumn !== 'undefined') DetailColumn.onSheetClosed('leagues');
+  Views.show(Views.returnTo);
 }
 
 let tournamentDetailId = null;
@@ -4183,10 +4190,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }catch(e){ console.error('Session detail sheet wiring failed:', e); }
 
   try{
-    safeOn('btnCloseLeagueDetail', 'click', closeLeagueDetail);
-    safeOn('leagueDetailOverlay', 'click', (e)=>{
-      if (e.target.id==='leagueDetailOverlay') closeLeagueDetail();
-    });
+    safeOn('btnBackFromLeagueDetail', 'click', closeLeagueDetail);
     safeOn('btnEditLeagueFromDetail', 'click', ()=>{
       if (!leagueDetailId) return;
       const id = leagueDetailId;
@@ -4195,7 +4199,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
     safeOn('btnLeagueTeamInvite', 'click', inviteToLeagueTeam);
     safeOn('inputLeagueTeamInvite', 'keydown', (e)=>{ if (e.key === 'Enter') inviteToLeagueTeam(); });
-  }catch(e){ console.error('League detail sheet wiring failed:', e); }
+  }catch(e){ console.error('League detail page wiring failed:', e); }
 
   try{
     safeOn('btnCloseBallDetail', 'click', closeBallDetail);
