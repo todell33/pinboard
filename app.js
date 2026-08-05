@@ -1,6 +1,6 @@
 // ======================================================================
 // PINBOARD — Bowling Tracker
-// Local-first storage with optional Google Sheets sync
+// Local-first storage with optional account sign-in and cloud sync
 // ======================================================================
 
 const STORAGE_KEY = 'pinboard_games_v1';

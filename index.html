@@ -143,15 +143,6 @@ input, select{ font-family: inherit; }
   color: var(--brass); /* matches the brass color of the rest of "BOARD" via currentColor */
 }
 .brand-sub{ font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--maple-dim); text-transform: uppercase; opacity:0.6; }
-.sync-dot{
-  width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px;
-  background: var(--gutter-green-bright);
-  box-shadow: 0 0 8px var(--gutter-green-bright);
-}
-.sync-dot.off{ background:#6a6258; box-shadow:none; }
-.sync-dot.syncing{ background: var(--brass-bright); box-shadow: 0 0 8px var(--brass-bright); animation: pulse 1s ease-in-out infinite; }
-@keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.4;} }
-.sync-label{ font-family: var(--mono); font-size: 10px; color: var(--maple-dim); display:flex; align-items:center; cursor:pointer; }
 
 /* ============ MAIN SCROLL ============ */
 main{ flex:1; padding: 20px 20px calc(90px + var(--safe-bottom)); max-width: 640px; margin: 0 auto; width:100%; }
@@ -756,9 +747,6 @@ a.inline-link{ color: var(--brass); }
       <div class="brand">
         <span class="brand-mark">P<svg class="brand-pin-i" viewBox="0 0.2 14 23.1" aria-hidden="true"><path d="M7 0.3c-1.7 0-2.6 1.7-2.6 3.4 0 1 0.3 1.9 0.7 2.7-1.3 1.6-2.1 4-2.1 6.4 0 1.9 0.35 3.6 0.85 5.1-0.4 0.5-0.65 1.15-0.65 1.85 0 2.1 1.9 3.4 4 3.4s4-1.3 4-3.4c0-0.7-0.25-1.35-0.65-1.85 0.5-1.5 0.85-3.2 0.85-5.1 0-2.4-0.8-4.8-2.1-6.4 0.4-0.8 0.7-1.7 0.7-2.7 0-1.7-0.9-3.4-2.6-3.4z" fill="currentColor"/></svg>N<span>B<svg class="brand-ball-o" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="currentColor"/><circle cx="8" cy="6.8" r="1.15" fill="var(--walnut)"/><circle cx="11.6" cy="6.4" r="1.15" fill="var(--walnut)"/><circle cx="9.7" cy="9.5" r="1.15" fill="var(--walnut)"/></svg>ARD</span></span>
       </div>
-    </div>
-    <div class="sync-label" id="syncLabel" onclick="Views.show('settings')">
-      <span class="sync-dot off" id="syncDot"></span><span id="syncText">Local only</span>
     </div>
   </div>
 
